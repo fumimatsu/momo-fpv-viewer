@@ -16,6 +16,8 @@
   const RC_BRAKE_VALUE = getNumberParam('rcBrakeValue', 1300);
   const RC_BRAKE_DURATION_MS = getNumberParam('rcBrakeMs', 1000);
   const RC_BRAKE_THRESHOLD = getNumberParam('rcBrakeThreshold', 1600);
+  const RC_STEERING_NEUTRAL_DEADBAND_US = getNumberParamAllowZero('rcSteeringNeutralDeadband', 10);
+  const RC_THROTTLE_NEUTRAL_DEADBAND_US = getNumberParamAllowZero('rcThrottleNeutralDeadband', 10);
   const GAMEPAD_ENABLED = getBooleanParam('gamepad', true);
   const GAMEPAD_INDEX = getNumberParamAllowZero('gamepadIndex', 0);
   const GAMEPAD_STEERING_AXIS = getNumberParamAllowZero('gamepadSteeringAxis', 0);
@@ -26,7 +28,7 @@
   const GAMEPAD_THROTTLE_INVERT = getBooleanParam('gamepadThrottleInvert', false);
   const GAMEPAD_BRAKE_AXIS = getIntegerParam('gamepadBrakeAxis', 6);
   const GAMEPAD_BRAKE_INVERT = getBooleanParam('gamepadBrakeInvert', false);
-  const GAMEPAD_PEDAL_DEADZONE = getNumberParamAllowZero('gamepadPedalDeadzone', 0.03);
+  const GAMEPAD_PEDAL_DEADZONE = getNumberParamAllowZero('gamepadPedalDeadzone', 0.05);
   const GAMEPAD_DRIVE_BUTTON = getIntegerParam('gamepadDriveButton', 8);
   const GAMEPAD_DRIVE_BUTTON_ENABLED = getBooleanParam('gamepadDriveButtonEnabled', true);
   const GAMEPAD_PADDLE_LEFT_BUTTON = getIntegerParam('gamepadPaddleLeftButton', 0);
@@ -745,11 +747,16 @@
     return Math.max(minValue, Math.min(maxValue, Math.round(value)));
   }
 
+  function applyNeutralDeadband(value, deadbandUs) {
+    const pulse = clampRcValue(value);
+    return Math.abs(pulse - 1500) <= deadbandUs ? 1500 : pulse;
+  }
+
   function clampRcAxisValue(axis, value) {
     if (axis === 'throttle') {
-      return clampRcValue(value, RC_THROTTLE_MIN, 2000);
+      return clampRcValue(applyNeutralDeadband(value, RC_THROTTLE_NEUTRAL_DEADBAND_US), RC_THROTTLE_MIN, 2000);
     }
-    return clampRcValue(value);
+    return clampRcValue(applyNeutralDeadband(value, RC_STEERING_NEUTRAL_DEADBAND_US));
   }
 
   function cancelThrottleBrake() {
@@ -1173,9 +1180,12 @@
       currentPeerConnection.onconnectionstatechange = null;
     }
 
-    if (sendSignalingClose && currentWs && currentWs.readyState === WebSocket.OPEN) {
+    if (sendSignalingClose &&
+        !isAyameSignaling() &&
+        currentWs &&
+        currentWs.readyState === WebSocket.OPEN) {
       try {
-        currentWs.send(JSON.stringify({ type: isAyameSignaling() ? 'bye' : 'close' }));
+        currentWs.send(JSON.stringify({ type: 'close' }));
       } catch (_) {
       }
     }
@@ -1388,6 +1398,14 @@
         recordEvent('ayame bye');
         scheduleReconnect('peer closed');
         break;
+      case 'reject':
+        recordEvent('ayame reject', message.reason || 'unknown');
+        if (message.reason === 'full') {
+          shouldReconnect = false;
+          reconnectReason = 'room full';
+          clearReconnectTimer();
+        }
+        break;
       default:
         console.warn('Unknown Ayame message:', message.type);
     }
@@ -1477,25 +1495,47 @@
           : []
       ),
     });
-    dataChannel = peer.createDataChannel('serial', {
-      ordered: false,
-      maxRetransmits: 0,
-    });
-    dataChannel.onopen = () => {
-      connectedAt = performance.now();
-      pendingDcPings.clear();
-      dcRttMs = null;
-      lastDcPongAt = 0;
-      recordEvent('dc open');
-      sendDcPing();
+    const attachDataChannel = (channel) => {
+      if (dataChannel && dataChannel !== channel) {
+        dataChannel.onopen = null;
+        dataChannel.onclose = null;
+        dataChannel.onmessage = null;
+      }
+      dataChannel = channel;
+      dataChannel.onopen = () => {
+        connectedAt = performance.now();
+        pendingDcPings.clear();
+        dcRttMs = null;
+        lastDcPongAt = 0;
+        recordEvent('dc open');
+        sendDcPing();
+        updateUiState();
+      };
+      dataChannel.onclose = () => {
+        recordEvent('dc close');
+        scheduleReconnect('dc closed');
+        updateUiState();
+      };
+      dataChannel.onmessage = (event) => handleDataChannelMessage(event.data);
+      if (dataChannel.readyState === 'open') {
+        connectedAt = performance.now();
+        pendingDcPings.clear();
+        dcRttMs = null;
+        lastDcPongAt = 0;
+        recordEvent('dc open');
+        sendDcPing();
+      }
       updateUiState();
     };
-    dataChannel.onclose = () => {
-      recordEvent('dc close');
-      scheduleReconnect('dc closed');
-      updateUiState();
-    };
-    dataChannel.onmessage = (event) => handleDataChannelMessage(event.data);
+
+    peer.ondatachannel = (event) => attachDataChannel(event.channel);
+
+    if (!isAyameSignaling()) {
+      attachDataChannel(peer.createDataChannel('serial', {
+        ordered: false,
+        maxRetransmits: 0,
+      }));
+    }
 
     const mediaStream = new MediaStream();
     remoteVideo.srcObject = mediaStream;
