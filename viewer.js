@@ -1331,6 +1331,18 @@
       .filter(Boolean);
   }
 
+  function defaultIceServers() {
+    return getBooleanParam('stun', isAyameSignaling())
+      ? [{ urls: 'stun:stun.l.google.com:19302' }]
+      : [];
+  }
+
+  function resolveIceServers(iceServers) {
+    return Array.isArray(iceServers) && iceServers.length > 0
+      ? iceServers
+      : defaultIceServers();
+  }
+
   function sendSignalingDescription(description) {
     if (!ws || ws.readyState !== WebSocket.OPEN || !description) {
       return;
@@ -1489,11 +1501,7 @@
     hasReceivedSdp = false;
 
     const peer = new RTCPeerConnection({
-      iceServers: options.iceServers || (
-        getBooleanParam('stun', false)
-          ? [{ urls: 'stun:stun.l.google.com:19302' }]
-          : []
-      ),
+      iceServers: resolveIceServers(options.iceServers),
     });
     const attachDataChannel = (channel) => {
       if (dataChannel && dataChannel !== channel) {
