@@ -1538,12 +1538,10 @@
 
     peer.ondatachannel = (event) => attachDataChannel(event.channel);
 
-    if (!isAyameSignaling()) {
-      attachDataChannel(peer.createDataChannel('serial', {
-        ordered: false,
-        maxRetransmits: 0,
-      }));
-    }
+    attachDataChannel(peer.createDataChannel('serial', {
+      ordered: false,
+      maxRetransmits: 0,
+    }));
 
     const mediaStream = new MediaStream();
     remoteVideo.srcObject = mediaStream;
