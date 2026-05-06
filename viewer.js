@@ -4,6 +4,8 @@
   const DEFAULT_HOST = '192.168.11.3:8080';
   const RECONNECT_BASE_DELAY_MS = 500;
   const RECONNECT_MAX_DELAY_MS = 5000;
+  const ROOM_FULL_RETRY_BASE_DELAY_MS = getNumberParam('roomFullRetryMs', 10000);
+  const ROOM_FULL_RETRY_MAX_DELAY_MS = getNumberParam('roomFullRetryMaxMs', 30000);
   const VIDEO_FREEZE_TIMEOUT_MS = getNumberParam('videoFreezeMs', 6000);
   const CONNECT_GRACE_MS = 5000;
   const AUTO_RECONNECT = getBooleanParam('autoReconnect', true);
@@ -121,6 +123,7 @@
     wsError: 0,
     peerClosed: 0,
     dcClosed: 0,
+    roomFull: 0,
     iceFailed: 0,
     pcFailed: 0,
   };
@@ -463,6 +466,7 @@
       `nv${eventCounters.noVideo}`,
       `ws${eventCounters.wsClosed}`,
       `dc${eventCounters.dcClosed}`,
+      `rf${eventCounters.roomFull}`,
       `ice${eventCounters.iceFailed}`,
       `pc${eventCounters.pcFailed}`,
     ].join(' ');
@@ -1181,11 +1185,10 @@
     }
 
     if (sendSignalingClose &&
-        !isAyameSignaling() &&
         currentWs &&
         currentWs.readyState === WebSocket.OPEN) {
       try {
-        currentWs.send(JSON.stringify({ type: 'close' }));
+        currentWs.send(JSON.stringify({ type: isAyameSignaling() ? 'bye' : 'close' }));
       } catch (_) {
       }
     }
@@ -1241,8 +1244,9 @@
     closeTransport({ sendSignalingClose: true });
   }
 
-  function scheduleReconnect(reason) {
-    if (!AUTO_RECONNECT) {
+  function scheduleReconnect(reason, options = {}) {
+    const force = options.force === true;
+    if (!AUTO_RECONNECT && !force) {
       recordEvent('reconnect blocked', reason);
       return;
     }
@@ -1259,6 +1263,8 @@
       eventCounters.peerClosed += 1;
     } else if (reason === 'dc closed') {
       eventCounters.dcClosed += 1;
+    } else if (reason === 'room full') {
+      eventCounters.roomFull += 1;
     } else if (reason === 'ice failed') {
       eventCounters.iceFailed += 1;
     } else if (reason === 'pc failed') {
@@ -1269,9 +1275,11 @@
     reconnectCount += 1;
     reconnectAttempt += 1;
     reconnectReason = reason;
+    const baseDelayMs = options.baseDelayMs || RECONNECT_BASE_DELAY_MS;
+    const maxDelayMs = options.maxDelayMs || RECONNECT_MAX_DELAY_MS;
     const delay = Math.min(
-      RECONNECT_BASE_DELAY_MS * (2 ** Math.min(reconnectAttempt - 1, 4)),
-      RECONNECT_MAX_DELAY_MS,
+      baseDelayMs * (2 ** Math.min(reconnectAttempt - 1, 4)),
+      maxDelayMs,
     );
     reconnectAfter = performance.now() + delay;
     console.warn('Scheduling reconnect:', reason, `${delay}ms`);
@@ -1373,6 +1381,18 @@
     }
   }
 
+  function getAyameRejectReason(message) {
+    return String(message.reason || message.error || message.message || 'unknown');
+  }
+
+  function isRoomFullReject(message) {
+    const reason = getAyameRejectReason(message).toLowerCase();
+    return reason === 'full' ||
+      reason === 'roomfilled' ||
+      reason.includes('room full') ||
+      reason.includes('roomfilled');
+  }
+
   function handleAyameMessage(message) {
     switch (message.type) {
       case 'accept':
@@ -1411,11 +1431,13 @@
         scheduleReconnect('peer closed');
         break;
       case 'reject':
-        recordEvent('ayame reject', message.reason || 'unknown');
-        if (message.reason === 'full') {
-          shouldReconnect = false;
-          reconnectReason = 'room full';
-          clearReconnectTimer();
+        recordEvent('ayame reject', getAyameRejectReason(message));
+        if (isRoomFullReject(message)) {
+          scheduleReconnect('room full', {
+            force: true,
+            baseDelayMs: ROOM_FULL_RETRY_BASE_DELAY_MS,
+            maxDelayMs: ROOM_FULL_RETRY_MAX_DELAY_MS,
+          });
         }
         break;
       default:
