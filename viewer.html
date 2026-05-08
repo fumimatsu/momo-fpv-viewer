@@ -311,6 +311,31 @@
       filter: grayscale(0.2);
     }
 
+    #btnReconnect {
+      min-width: 118px;
+      font-weight: 700;
+      opacity: 0.88;
+    }
+
+    #btnReconnect[data-state="connected"],
+    #btnReconnect[data-state="connecting"] {
+      border-color: rgba(255, 92, 92, 0.72);
+      background: rgba(128, 18, 24, 0.64);
+      color: #ffffff;
+    }
+
+    #btnReconnect[data-state="idle"] {
+      border-color: rgba(88, 255, 153, 0.72);
+      background: rgba(0, 126, 61, 0.54);
+      color: #ffffff;
+    }
+
+    #btnReconnect[data-state="busy"] {
+      border-color: rgba(255, 211, 108, 0.62);
+      background: rgba(128, 89, 18, 0.54);
+      color: #ffffff;
+    }
+
     .primary {
       background: rgba(29, 111, 223, 0.2);
       border-color: rgba(69, 136, 246, 0.38);
@@ -425,7 +450,7 @@
   <div class="top">
     <div class="top-controls">
       <input id="endpoint" class="hidden-endpoint" type="text" autocomplete="off" spellcheck="false">
-      <button id="btnReconnect" type="button">Reconnect</button>
+      <button id="btnReconnect" type="button">Connect</button>
       <button id="btnFullscreen" type="button">Fullscreen</button>
       <button id="btnFlip" type="button">Flip</button>
       <button id="btnMirror" type="button">Mirror</button>

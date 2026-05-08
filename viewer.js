@@ -46,11 +46,16 @@
   const AYAME_ROOM_ID = getStringParam(['roomId', 'ayameRoomId'], '');
   const AYAME_CLIENT_ID = getAyameClientId();
   const AYAME_SIGNALING_KEY = getStringParam(['signalingKey', 'ayameKey'], '');
+  const AUTO_START = getBooleanParam('autoStart', SIGNALING_MODE !== 'ayame');
   const ICE_MODE = normalizeIceMode(getStringParam(['iceMode', 'ice'], 'auto'));
   const STUN_URLS = getStringListParam(['stunUrls', 'stunUrl'], ['stun:stun.l.google.com:19302']);
   const TURN_URLS = getStringListParam(['turnUrls', 'turnUrl'], []);
   const TURN_USERNAME = getStringParam(['turnUsername', 'turnUser'], '');
   const TURN_CREDENTIAL = getStringParam(['turnCredential', 'turnPassword'], '');
+  const ROOM_LOCK_ENABLED = getBooleanParam('roomLock', SIGNALING_MODE === 'ayame');
+  const ROOM_LOCK_URL = normalizeBaseUrl(getStringParam(['lockUrl', 'roomLockUrl'], defaultRoomLockUrl()));
+  const ROOM_LOCK_TTL_SEC = getNumberParam('roomLockTtl', 30);
+  const ROOM_LOCK_POLL_MS = getNumberParam('roomLockPollMs', 5000);
 
   const remoteVideo = document.getElementById('remote_video');
   const endpointInput = document.getElementById('endpoint');
@@ -113,7 +118,7 @@
   let reconnectAttempt = 0;
   let reconnectReason = '';
   let reconnectAfter = 0;
-  let shouldReconnect = true;
+  let shouldReconnect = AUTO_START;
   let connectStartedAt = 0;
   let connectedAt = 0;
   let visibleSince = performance.now();
@@ -163,6 +168,11 @@
   let lastGamepadAt = 0;
   let lastGamepadStatus = 'n/a';
   let ayameIceServers = [];
+  let roomLease = null;
+  let roomLockStatus = null;
+  let roomLockBusy = false;
+  let roomLockStatusTimer = null;
+  let roomLockHeartbeatTimer = null;
   const gamepadPedalIdle = {
     throttle: 1,
     brake: 1,
@@ -255,6 +265,26 @@
   function normalizeIceMode(value) {
     const mode = String(value || '').toLowerCase();
     return ['auto', 'turn', 'stun', 'none'].includes(mode) ? mode : 'auto';
+  }
+
+  function normalizeBaseUrl(value) {
+    return String(value || '').replace(/\/+$/, '');
+  }
+
+  function defaultRoomLockUrl() {
+    if (!AYAME_SIGNALING_URL) {
+      return '';
+    }
+    try {
+      const url = new URL(AYAME_SIGNALING_URL);
+      url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
+      url.pathname = '/fpv-lock';
+      url.search = '';
+      url.hash = '';
+      return url.toString().replace(/\/+$/, '');
+    } catch (_) {
+      return '';
+    }
   }
 
   function createRandomIdPart() {
@@ -377,6 +407,27 @@
     setText(videoState, getVideoStatus());
 
     const canSend = dataChannel && dataChannel.readyState === 'open';
+    const active = isConnectionActive();
+    const lockedByOther = isRoomLockedByOther();
+    if (btnReconnect) {
+      if (active) {
+        btnReconnect.textContent = reconnectTimer ? 'CANCEL' : 'DISCONNECT';
+        btnReconnect.dataset.state = 'connected';
+        btnReconnect.disabled = false;
+      } else if (roomLockBusy) {
+        btnReconnect.textContent = 'CONNECTING';
+        btnReconnect.dataset.state = 'connecting';
+        btnReconnect.disabled = true;
+      } else if (lockedByOther) {
+        btnReconnect.textContent = 'BUSY';
+        btnReconnect.dataset.state = 'busy';
+        btnReconnect.disabled = true;
+      } else {
+        btnReconnect.textContent = 'CONNECT';
+        btnReconnect.dataset.state = 'idle';
+        btnReconnect.disabled = false;
+      }
+    }
     if (btnSend) {
       btnSend.disabled = !canSend;
     }
@@ -385,7 +436,7 @@
     }
     btnDrive.disabled = !canSend && !rcDriveEnabled;
     if (btnDisconnect) {
-      btnDisconnect.disabled = !peerConnection;
+      btnDisconnect.disabled = !active;
     }
   }
 
@@ -434,6 +485,12 @@
   function getLinkStatus() {
     if (reconnectTimer) {
       return 'reconnecting';
+    }
+    if (roomLockBusy) {
+      return 'locking';
+    }
+    if (isRoomLockedByOther()) {
+      return 'room busy';
     }
     if (!shouldReconnect && !peerConnection && !ws) {
       return 'stopped';
@@ -1184,6 +1241,181 @@
     reconnectAfter = 0;
   }
 
+  function isConnectionActive() {
+    return Boolean(ws || peerConnection || reconnectTimer);
+  }
+
+  function roomLockActive() {
+    return ROOM_LOCK_ENABLED && isAyameSignaling() && Boolean(ROOM_LOCK_URL) && Boolean(AYAME_ROOM_ID);
+  }
+
+  function roomLockEndpoint(suffix = '') {
+    const room = encodeURIComponent(AYAME_ROOM_ID);
+    return `${ROOM_LOCK_URL}/rooms/${room}${suffix}`;
+  }
+
+  function getRoomLeaseToken() {
+    return roomLease?.token || '';
+  }
+
+  function isRoomLockedByOther() {
+    if (!roomLockActive() || !roomLockStatus || roomLease) {
+      return false;
+    }
+    const holder = roomLockStatus.lease;
+    return Boolean(roomLockStatus.locked && holder?.clientId && holder.clientId !== AYAME_CLIENT_ID);
+  }
+
+  async function fetchRoomLockJson(url, options = {}) {
+    const response = await fetch(url, {
+      cache: 'no-store',
+      ...options,
+      headers: {
+        ...(options.headers || {}),
+      },
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) {
+      const error = new Error(payload.error || `HTTP ${response.status}`);
+      error.payload = payload;
+      error.status = response.status;
+      throw error;
+    }
+    return payload;
+  }
+
+  async function refreshRoomLockStatus() {
+    if (!roomLockActive() || isConnectionActive()) {
+      return;
+    }
+    try {
+      roomLockStatus = await fetchRoomLockJson(roomLockEndpoint());
+      if (isRoomLockedByOther()) {
+        const holder = roomLockStatus.lease?.clientId || 'other';
+        recordEvent('room busy', holder);
+      }
+    } catch (error) {
+      roomLockStatus = { ok: false, locked: false, error: error.message || String(error) };
+      recordEvent('room lock status failed', roomLockStatus.error);
+    } finally {
+      updateUiState();
+    }
+  }
+
+  function startRoomLockStatusMonitor() {
+    if (!roomLockActive() || roomLockStatusTimer) {
+      return;
+    }
+    refreshRoomLockStatus();
+    roomLockStatusTimer = window.setInterval(refreshRoomLockStatus, ROOM_LOCK_POLL_MS);
+  }
+
+  function stopRoomLockHeartbeat() {
+    if (!roomLockHeartbeatTimer) {
+      return;
+    }
+    window.clearInterval(roomLockHeartbeatTimer);
+    roomLockHeartbeatTimer = null;
+  }
+
+  async function heartbeatRoomLease() {
+    if (!roomLockActive() || !roomLease) {
+      return;
+    }
+    try {
+      const payload = await fetchRoomLockJson(roomLockEndpoint('/heartbeat'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId: AYAME_CLIENT_ID,
+          token: getRoomLeaseToken(),
+          ttlSec: ROOM_LOCK_TTL_SEC,
+        }),
+      });
+      roomLease = payload.lease || roomLease;
+      roomLockStatus = payload;
+    } catch (error) {
+      recordEvent('room heartbeat failed', error.message || String(error));
+    }
+  }
+
+  function startRoomLockHeartbeat() {
+    if (!roomLockActive() || roomLockHeartbeatTimer) {
+      return;
+    }
+    const intervalMs = Math.max(3000, Math.min(10000, Math.floor((ROOM_LOCK_TTL_SEC * 1000) / 3)));
+    roomLockHeartbeatTimer = window.setInterval(heartbeatRoomLease, intervalMs);
+  }
+
+  async function acquireRoomLease() {
+    if (!roomLockActive()) {
+      return true;
+    }
+    if (roomLease) {
+      startRoomLockHeartbeat();
+      return true;
+    }
+
+    roomLockBusy = true;
+    recordEvent('room lock', 'acquire');
+    updateUiState();
+    try {
+      const payload = await fetchRoomLockJson(roomLockEndpoint('/lease'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId: AYAME_CLIENT_ID,
+          ttlSec: ROOM_LOCK_TTL_SEC,
+          displayName: getStringParam(['id'], AYAME_CLIENT_ID),
+          userAgent: navigator.userAgent,
+        }),
+      });
+      roomLease = payload.lease || null;
+      roomLockStatus = payload;
+      startRoomLockHeartbeat();
+      recordEvent('room lock', 'acquired');
+      return true;
+    } catch (error) {
+      roomLockStatus = error.payload || { ok: false, locked: true, error: error.message || String(error) };
+      const holder = roomLockStatus.lease?.clientId || 'other';
+      recordEvent('room lock denied', holder);
+      return false;
+    } finally {
+      roomLockBusy = false;
+      updateUiState();
+    }
+  }
+
+  function releaseRoomLease(options = {}) {
+    if (!roomLockActive() || !roomLease) {
+      return;
+    }
+    const payload = {
+      clientId: AYAME_CLIENT_ID,
+      token: getRoomLeaseToken(),
+    };
+    const url = roomLockEndpoint('/release');
+    stopRoomLockHeartbeat();
+    roomLease = null;
+    roomLockStatus = null;
+
+    if (options.beacon && navigator.sendBeacon) {
+      const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+      navigator.sendBeacon(url, blob);
+      return;
+    }
+    fetchRoomLockJson(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).then((status) => {
+      roomLockStatus = status;
+      updateUiState();
+    }).catch((error) => {
+      recordEvent('room release failed', error.message || String(error));
+    });
+  }
+
   function closeTransport(options = {}) {
     const sendSignalingClose = options.sendSignalingClose === true;
     const currentWs = ws;
@@ -1267,6 +1499,7 @@
     clearReconnectTimer();
     setDriveEnabled(false);
     closeTransport({ sendSignalingClose: true });
+    releaseRoomLease();
   }
 
   function scheduleReconnect(reason, options = {}) {
@@ -1314,7 +1547,10 @@
     reconnectTimer = window.setTimeout(() => {
       reconnectTimer = null;
       reconnectAfter = 0;
-      connect({ isAutoReconnect: true });
+      connect({ isAutoReconnect: true }).catch((error) => {
+        recordEvent('connect failed', error.message || String(error));
+        updateUiState();
+      });
     }, delay);
   }
 
@@ -1508,7 +1744,23 @@
     }
   }
 
-  function connect(options = {}) {
+  async function connect(options = {}) {
+    if (roomLockBusy) {
+      return;
+    }
+    if (!options.isAutoReconnect) {
+      const acquired = await acquireRoomLease();
+      if (!acquired) {
+        shouldReconnect = false;
+        return;
+      }
+    } else if (roomLockActive() && !roomLease) {
+      const acquired = await acquireRoomLease();
+      if (!acquired) {
+        shouldReconnect = false;
+        return;
+      }
+    }
     shouldReconnect = true;
     if (!options.isAutoReconnect) {
       reconnectAttempt = 0;
@@ -2263,7 +2515,16 @@
   if (btnDisconnect) {
     btnDisconnect.addEventListener('click', disconnect);
   }
-  btnReconnect.addEventListener('click', connect);
+  btnReconnect.addEventListener('click', () => {
+    if (isConnectionActive()) {
+      disconnect();
+      return;
+    }
+    connect().catch((error) => {
+      recordEvent('connect failed', error.message || String(error));
+      updateUiState();
+    });
+  });
   btnFullscreen.addEventListener('click', () => {
     document.documentElement.requestFullscreen?.();
   });
@@ -2321,12 +2582,25 @@
       visibleSince = performance.now();
     }
   });
+  window.addEventListener('pagehide', () => {
+    releaseRoomLease({ beacon: true });
+  });
   startFpsMonitor();
   startLinkMonitor();
   startStatsMonitor();
   startOsdMonitor();
   startDcPingMonitor();
   startDeviceStatusMonitor();
+  startRoomLockStatusMonitor();
   startGamepadPoller();
-  connect();
+  if (AUTO_START) {
+    connect().catch((error) => {
+      recordEvent('connect failed', error.message || String(error));
+      updateUiState();
+    });
+  } else {
+    shouldReconnect = false;
+    recordEvent('manual connect required');
+    updateUiState();
+  }
 })();
