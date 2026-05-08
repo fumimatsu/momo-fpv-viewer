@@ -59,6 +59,7 @@
   const ROOM_LOCK_URL = normalizeBaseUrl(getStringParam(['lockUrl', 'roomLockUrl'], defaultRoomLockUrl()));
   const ROOM_LOCK_TTL_SEC = getNumberParam('roomLockTtl', 30);
   const ROOM_LOCK_POLL_MS = getNumberParam('roomLockPollMs', 5000);
+  const ROOM_LOCK_HEARTBEAT_MAX_FAILURES = Math.max(1, getIntegerParam('roomLockHeartbeatFailures', 3));
 
   const remoteVideo = document.getElementById('remote_video');
   const endpointInput = document.getElementById('endpoint');
@@ -179,6 +180,7 @@
   let roomLockBusy = false;
   let roomLockStatusTimer = null;
   let roomLockHeartbeatTimer = null;
+  let roomLockHeartbeatFailures = 0;
   const gamepadPedalIdle = {
     throttle: 1,
     brake: 1,
@@ -1302,6 +1304,10 @@
     return Boolean(ws || peerConnection || reconnectTimer);
   }
 
+  function isDataChannelOpen() {
+    return Boolean(dataChannel && dataChannel.readyState === 'open');
+  }
+
   function roomLockActive() {
     return ROOM_LOCK_ENABLED && isAyameSignaling() && Boolean(ROOM_LOCK_URL) && Boolean(AYAME_ROOM_ID);
   }
@@ -1342,7 +1348,24 @@
   }
 
   async function refreshRoomLockStatus() {
-    if (!roomLockActive() || isConnectionActive()) {
+    if (!roomLockActive()) {
+      return;
+    }
+    if (isDataChannelOpen()) {
+      if (!roomLease && !roomLockBusy) {
+        recordEvent('room lease recover', 'active connection');
+        const acquired = await acquireRoomLease();
+        if (!acquired) {
+          scheduleReconnect('room lock lost', {
+            force: true,
+            baseDelayMs: 1000,
+            maxDelayMs: 5000,
+          });
+        }
+      }
+      return;
+    }
+    if (isConnectionActive()) {
       return;
     }
     try {
@@ -1381,6 +1404,7 @@
     }
     stopRoomLockHeartbeat();
     roomLease = null;
+    roomLockHeartbeatFailures = 0;
     recordEvent('room lease cleared', reason);
   }
 
@@ -1401,11 +1425,15 @@
       });
       roomLease = payload.lease || roomLease;
       roomLockStatus = payload;
+      roomLockHeartbeatFailures = 0;
       return true;
     } catch (error) {
       recordEvent('room heartbeat failed', error.message || String(error));
-      clearRoomLease(error.message || 'heartbeat failed');
       roomLockStatus = error.payload || roomLockStatus;
+      roomLockHeartbeatFailures += 1;
+      if (error.status === 409 || roomLockHeartbeatFailures >= ROOM_LOCK_HEARTBEAT_MAX_FAILURES) {
+        clearRoomLease(error.message || 'heartbeat failed');
+      }
       return false;
     }
   }
@@ -1447,6 +1475,7 @@
       });
       roomLease = payload.lease || null;
       roomLockStatus = payload;
+      roomLockHeartbeatFailures = 0;
       startRoomLockHeartbeat();
       recordEvent('room lock', 'acquired');
       return true;
