@@ -18,6 +18,7 @@
   const RC_BRAKE_VALUE = getNumberParam('rcBrakeValue', 1300);
   const RC_BRAKE_DURATION_MS = getNumberParam('rcBrakeMs', 1000);
   const RC_BRAKE_THRESHOLD = getNumberParam('rcBrakeThreshold', 1700);
+  const RC_THROTTLE_GEAR_MIN_VALUES = [1400, 1400, 1300, 1300, 1300];
   const RC_THROTTLE_GEAR_MAX_VALUES = [1600, 1700, 1800, 1900, 2000];
   const RC_INITIAL_GEAR = Math.max(1, Math.min(5, getIntegerParam('rcGear', 1)));
   const RC_STEERING_NEUTRAL_DEADBAND_US = getNumberParamAllowZero('rcSteeringNeutralDeadband', 10);
@@ -836,15 +837,21 @@
     return Math.max(minValue, Math.min(maxValue, Math.round(value)));
   }
 
+  function getThrottleGearMin() {
+    return RC_THROTTLE_GEAR_MIN_VALUES[currentGear - 1] || RC_THROTTLE_MIN;
+  }
+
   function getThrottleGearMax() {
     return RC_THROTTLE_GEAR_MAX_VALUES[currentGear - 1] || 2000;
   }
 
   function updateGearUi() {
+    const throttleMin = getThrottleGearMin();
     const throttleMax = getThrottleGearMax();
+    throttleInput.min = String(throttleMin);
     throttleInput.max = String(throttleMax);
     if (gearState) {
-      gearState.textContent = `Gear ${currentGear} ${throttleMax}`;
+      gearState.textContent = `Gear ${currentGear}`;
     }
     for (const button of gearButtons) {
       button.setAttribute('aria-pressed', button.dataset.gear === String(currentGear) ? 'true' : 'false');
@@ -881,8 +888,9 @@
   function clampRcAxisValue(axis, value) {
     if (axis === 'throttle') {
       const pulse = applyNeutralDeadband(value, RC_THROTTLE_NEUTRAL_DEADBAND_US);
+      const minValue = pulse < 1500 ? getThrottleGearMin() : RC_THROTTLE_MIN;
       const maxValue = pulse > 1500 ? getThrottleGearMax() : 2000;
-      return clampRcValue(pulse, RC_THROTTLE_MIN, maxValue);
+      return clampRcValue(pulse, minValue, maxValue);
     }
     return clampRcValue(applyNeutralDeadband(value, RC_STEERING_NEUTRAL_DEADBAND_US));
   }
@@ -1056,6 +1064,9 @@
       stopRcTx();
       setNeutralCommand();
       sendCurrentRcCommand();
+    }
+    if (roomLease) {
+      heartbeatRoomLease();
     }
     updateRcUi();
   }
@@ -1385,6 +1396,7 @@
           clientId: AYAME_CLIENT_ID,
           token: getRoomLeaseToken(),
           ttlSec: ROOM_LOCK_TTL_SEC,
+          driveEnabled: rcDriveEnabled,
         }),
       });
       roomLease = payload.lease || roomLease;
@@ -1430,6 +1442,7 @@
           ttlSec: ROOM_LOCK_TTL_SEC,
           displayName: getStringParam(['id'], AYAME_CLIENT_ID),
           userAgent: navigator.userAgent,
+          driveEnabled: rcDriveEnabled,
         }),
       });
       roomLease = payload.lease || null;
