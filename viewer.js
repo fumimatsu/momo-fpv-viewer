@@ -1754,6 +1754,11 @@
       reason.includes('roomfilled');
   }
 
+  function isRoomLockReject(message) {
+    const reason = getAyameRejectReason(message).toLowerCase();
+    return reason.includes('room lock') || reason.includes('lock required');
+  }
+
   function handleAyameMessage(message) {
     switch (message.type) {
       case 'accept':
@@ -1793,7 +1798,14 @@
         break;
       case 'reject':
         recordEvent('ayame reject', getAyameRejectReason(message));
-        if (isRoomFullReject(message)) {
+        if (isRoomLockReject(message)) {
+          clearRoomLease(getAyameRejectReason(message));
+          scheduleReconnect('room lock lost', {
+            force: true,
+            baseDelayMs: 1000,
+            maxDelayMs: 5000,
+          });
+        } else if (isRoomFullReject(message)) {
           scheduleReconnect('room full', {
             force: true,
             baseDelayMs: ROOM_FULL_RETRY_BASE_DELAY_MS,
@@ -1810,13 +1822,7 @@
     if (roomLockBusy) {
       return;
     }
-    if (!options.isAutoReconnect) {
-      const acquired = await acquireRoomLease();
-      if (!acquired) {
-        shouldReconnect = false;
-        return;
-      }
-    } else if (roomLockActive() && !roomLease) {
+    if (roomLockActive()) {
       const acquired = await acquireRoomLease();
       if (!acquired) {
         shouldReconnect = false;
