@@ -208,6 +208,37 @@
       align-self: end;
     }
 
+    .rc-gear {
+      display: flex;
+      flex: 0 0 100%;
+      justify-content: center;
+      align-items: center;
+      gap: 6px;
+      color: #ffffff;
+      font-weight: 700;
+      text-shadow: 0 0 2px #000000;
+    }
+
+    .rc-gear-label {
+      min-width: 72px;
+      text-align: right;
+      opacity: 0.82;
+    }
+
+    .rc-gear button {
+      width: 34px;
+      min-width: 34px;
+      padding: 0;
+      font-weight: 700;
+    }
+
+    .rc-gear button[aria-pressed="true"] {
+      border-color: rgba(88, 255, 153, 0.9);
+      background: rgba(0, 126, 61, 0.86);
+      color: #ffffff;
+      opacity: 0.94;
+    }
+
     input,
     button {
       min-height: 32px;
@@ -519,6 +550,14 @@
       </div>
 
       <div class="rc-actions">
+        <div class="rc-gear" aria-label="Throttle gear">
+          <span id="gearState" class="rc-gear-label">Gear 1</span>
+          <button class="gear-button" type="button" data-gear="1" aria-pressed="true">1</button>
+          <button class="gear-button" type="button" data-gear="2" aria-pressed="false">2</button>
+          <button class="gear-button" type="button" data-gear="3" aria-pressed="false">3</button>
+          <button class="gear-button" type="button" data-gear="4" aria-pressed="false">4</button>
+          <button class="gear-button" type="button" data-gear="5" aria-pressed="false">5</button>
+        </div>
         <button id="btnReconnect" type="button">Connect</button>
         <button id="btnDrive" type="button" aria-pressed="false" disabled>Drive Off</button>
       </div>

@@ -17,7 +17,9 @@
   const RC_THROTTLE_MIN = getNumberParam('rcThrottleMin', 1300);
   const RC_BRAKE_VALUE = getNumberParam('rcBrakeValue', 1300);
   const RC_BRAKE_DURATION_MS = getNumberParam('rcBrakeMs', 1000);
-  const RC_BRAKE_THRESHOLD = getNumberParam('rcBrakeThreshold', 1600);
+  const RC_BRAKE_THRESHOLD = getNumberParam('rcBrakeThreshold', 1700);
+  const RC_THROTTLE_GEAR_RATIOS = [0.4, 0.55, 0.7, 0.85, 1.0];
+  const RC_INITIAL_GEAR = Math.max(1, Math.min(5, getIntegerParam('rcGear', 1)));
   const RC_STEERING_NEUTRAL_DEADBAND_US = getNumberParamAllowZero('rcSteeringNeutralDeadband', 10);
   const RC_THROTTLE_NEUTRAL_DEADBAND_US = getNumberParamAllowZero('rcThrottleNeutralDeadband', 10);
   const GAMEPAD_ENABLED = getBooleanParam('gamepad', true);
@@ -102,6 +104,8 @@
   const btnSend = document.getElementById('btnSend');
   const btnNeutral = document.getElementById('btnNeutral');
   const btnDisconnect = document.getElementById('btnDisconnect');
+  const gearState = document.getElementById('gearState');
+  const gearButtons = Array.from(document.querySelectorAll('.gear-button'));
 
   let ws = null;
   let peerConnection = null;
@@ -151,6 +155,7 @@
   let lastFramesDecoded = 0;
   let decodedFrameHistory = [];
   let rcDriveEnabled = false;
+  let currentGear = RC_INITIAL_GEAR;
   let rcTxTimer = null;
   let rcBrakeTimer = null;
   let lastRcCommand = 'S:1500,T:1500';
@@ -676,7 +681,7 @@
     const mode = rcDriveEnabled ? 'drive' : 'manual';
     const link = dataChannel && dataChannel.readyState === 'open' ? 'open' : 'wait';
     const gamepad = GAMEPAD_ENABLED ? ` ${lastGamepadStatus}` : '';
-    return `${mode} ${link} ${lastRcCommand}${gamepad}`;
+    return `${mode} ${link} g${currentGear} ${lastRcCommand}${gamepad}`;
   }
 
   function getTelemetryStatus() {
@@ -831,6 +836,47 @@
     return Math.max(minValue, Math.min(maxValue, Math.round(value)));
   }
 
+  function getThrottleGearRatio() {
+    return RC_THROTTLE_GEAR_RATIOS[currentGear - 1] || 1;
+  }
+
+  function getThrottleGearMax() {
+    return 1500 + Math.round(500 * getThrottleGearRatio());
+  }
+
+  function updateGearUi() {
+    const throttleMax = getThrottleGearMax();
+    throttleInput.max = String(throttleMax);
+    if (gearState) {
+      gearState.textContent = `Gear ${currentGear} ${Math.round(getThrottleGearRatio() * 100)}%`;
+    }
+    for (const button of gearButtons) {
+      button.setAttribute('aria-pressed', button.dataset.gear === String(currentGear) ? 'true' : 'false');
+    }
+  }
+
+  function setThrottleGear(gear) {
+    const nextGear = Math.max(1, Math.min(5, Number(gear) || 1));
+    if (nextGear === currentGear) {
+      updateGearUi();
+      return;
+    }
+    currentGear = nextGear;
+    updateGearUi();
+    const throttle = Number(throttleInput.value);
+    const limitedThrottle = clampRcAxisValue('throttle', throttle);
+    if (limitedThrottle !== throttle) {
+      throttleInput.value = String(limitedThrottle);
+      syncCommandFromSliders();
+      if (rcDriveEnabled) {
+        sendCurrentRcCommand();
+      }
+    } else {
+      syncCommandFromSliders();
+    }
+    recordEvent('gear', String(currentGear));
+  }
+
   function applyNeutralDeadband(value, deadbandUs) {
     const pulse = clampRcValue(value);
     return Math.abs(pulse - 1500) <= deadbandUs ? 1500 : pulse;
@@ -838,7 +884,9 @@
 
   function clampRcAxisValue(axis, value) {
     if (axis === 'throttle') {
-      return clampRcValue(applyNeutralDeadband(value, RC_THROTTLE_NEUTRAL_DEADBAND_US), RC_THROTTLE_MIN, 2000);
+      const pulse = applyNeutralDeadband(value, RC_THROTTLE_NEUTRAL_DEADBAND_US);
+      const maxValue = pulse > 1500 ? getThrottleGearMax() : 2000;
+      return clampRcValue(pulse, RC_THROTTLE_MIN, maxValue);
     }
     return clampRcValue(applyNeutralDeadband(value, RC_STEERING_NEUTRAL_DEADBAND_US));
   }
@@ -1187,9 +1235,11 @@
       toggleDrive();
     }
     if (getGamepadButtonRisingEdge(gamepad, GAMEPAD_PADDLE_LEFT_BUTTON)) {
+      setThrottleGear(currentGear - 1);
       recordEvent('gamepad paddle', 'left');
     }
     if (getGamepadButtonRisingEdge(gamepad, GAMEPAD_PADDLE_RIGHT_BUTTON)) {
+      setThrottleGear(currentGear + 1);
       recordEvent('gamepad paddle', 'right');
     }
     if (rcDriveEnabled) {
@@ -2512,6 +2562,9 @@
   steeringInput.addEventListener('blur', () => onRcControlBlur('steering'));
   throttleInput.addEventListener('blur', () => onRcControlBlur('throttle'));
   btnDrive.addEventListener('click', toggleDrive);
+  for (const button of gearButtons) {
+    button.addEventListener('click', () => setThrottleGear(button.dataset.gear));
+  }
   if (btnSend) {
     btnSend.addEventListener('click', () => sendCommand(lastRcCommand));
   }
@@ -2609,6 +2662,7 @@
   startDeviceStatusMonitor();
   startRoomLockStatusMonitor();
   startGamepadPoller();
+  updateGearUi();
   if (AUTO_START) {
     connect().catch((error) => {
       recordEvent('connect failed', error.message || String(error));
