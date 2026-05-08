@@ -6,8 +6,8 @@
   const RECONNECT_MAX_DELAY_MS = 5000;
   const ROOM_FULL_RETRY_BASE_DELAY_MS = getNumberParam('roomFullRetryMs', 10000);
   const ROOM_FULL_RETRY_MAX_DELAY_MS = getNumberParam('roomFullRetryMaxMs', 30000);
-  const VIDEO_FREEZE_TIMEOUT_MS = getNumberParam('videoFreezeMs', 6000);
-  const CONNECT_GRACE_MS = 5000;
+  const VIDEO_FREEZE_TIMEOUT_MS = getNumberParam('videoFreezeMs', 12000);
+  const CONNECT_GRACE_MS = getNumberParam('connectGraceMs', 15000);
   const AUTO_RECONNECT = getBooleanParam('autoReconnect', true);
   const AUTO_RECONNECT_ON_VIDEO_LOST = getBooleanParam('videoReconnect', true);
   const DEVICE_STATUS_MODE = getDeviceStatusMode();
@@ -36,6 +36,7 @@
   const GAMEPAD_PADDLE_LEFT_BUTTON = getIntegerParam('gamepadPaddleLeftButton', 0);
   const GAMEPAD_PADDLE_RIGHT_BUTTON = getIntegerParam('gamepadPaddleRightButton', 1);
   const OSD_UPDATE_INTERVAL_MS = getNumberParam('osdMs', 100);
+  const DC_PING_ENABLED = getBooleanParam('dcPing', false);
   const DC_PING_INTERVAL_MS = getNumberParam('dcPingMs', 1000);
   const SIGNALING_MODE = getStringParam(['signaling', 'signalingMode'], 'p2p').toLowerCase();
   const AYAME_SIGNALING_URL = getStringParam(
@@ -45,6 +46,11 @@
   const AYAME_ROOM_ID = getStringParam(['roomId', 'ayameRoomId'], '');
   const AYAME_CLIENT_ID = getAyameClientId();
   const AYAME_SIGNALING_KEY = getStringParam(['signalingKey', 'ayameKey'], '');
+  const ICE_MODE = normalizeIceMode(getStringParam(['iceMode', 'ice'], 'auto'));
+  const STUN_URLS = getStringListParam(['stunUrls', 'stunUrl'], ['stun:stun.l.google.com:19302']);
+  const TURN_URLS = getStringListParam(['turnUrls', 'turnUrl'], []);
+  const TURN_USERNAME = getStringParam(['turnUsername', 'turnUser'], '');
+  const TURN_CREDENTIAL = getStringParam(['turnCredential', 'turnPassword'], '');
 
   const remoteVideo = document.getElementById('remote_video');
   const endpointInput = document.getElementById('endpoint');
@@ -110,6 +116,7 @@
   let shouldReconnect = true;
   let connectStartedAt = 0;
   let connectedAt = 0;
+  let visibleSince = performance.now();
   let reconnectCount = 0;
   let lastEvent = 'start';
   let lastReconnectAt = 0;
@@ -232,6 +239,22 @@
       }
     }
     return defaultValue;
+  }
+
+  function getStringListParam(names, defaultValue = []) {
+    const raw = getStringParam(names, '');
+    if (!raw) {
+      return defaultValue;
+    }
+    return raw
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+  }
+
+  function normalizeIceMode(value) {
+    const mode = String(value || '').toLowerCase();
+    return ['auto', 'turn', 'stun', 'none'].includes(mode) ? mode : 'auto';
   }
 
   function createRandomIdPart() {
@@ -587,7 +610,7 @@
     if (!dataChannel || dataChannel.readyState !== 'open') {
       return false;
     }
-    dataChannel.send(isAyameSignaling() ? `${command}\n` : command);
+    dataChannel.send(`${command}\n`);
     lastRcCommand = command;
     return true;
   }
@@ -874,6 +897,7 @@
   function sendDcPing() {
     if (
       isAyameSignaling()
+      || !DC_PING_ENABLED
       || !isDebugOsdEnabled()
       || !dataChannel
       || dataChannel.readyState !== 'open'
@@ -1185,10 +1209,11 @@
     }
 
     if (sendSignalingClose &&
+        !isAyameSignaling() &&
         currentWs &&
         currentWs.readyState === WebSocket.OPEN) {
       try {
-        currentWs.send(JSON.stringify({ type: isAyameSignaling() ? 'bye' : 'close' }));
+        currentWs.send(JSON.stringify({ type: 'close' }));
       } catch (_) {
       }
     }
@@ -1339,15 +1364,53 @@
       .filter(Boolean);
   }
 
+  function hasTurnUrl(server) {
+    const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+    return urls.some((url) => {
+      const normalized = String(url || '').toLowerCase();
+      return normalized.startsWith('turn:') || normalized.startsWith('turns:');
+    });
+  }
+
+  function configuredStunIceServers() {
+    return STUN_URLS.length > 0 ? [{ urls: STUN_URLS }] : [];
+  }
+
+  function configuredTurnIceServers() {
+    if (TURN_URLS.length === 0) {
+      return [];
+    }
+    const server = { urls: TURN_URLS };
+    if (TURN_USERNAME && TURN_CREDENTIAL) {
+      server.username = TURN_USERNAME;
+      server.credential = TURN_CREDENTIAL;
+    }
+    return [server];
+  }
+
   function defaultIceServers() {
     return getBooleanParam('stun', isAyameSignaling())
-      ? [{ urls: 'stun:stun.l.google.com:19302' }]
+      ? configuredStunIceServers()
       : [];
   }
 
   function resolveIceServers(iceServers) {
-    return Array.isArray(iceServers) && iceServers.length > 0
-      ? iceServers
+    const normalizedIceServers = normalizeIceServers(iceServers);
+    if (ICE_MODE === 'none') {
+      return [];
+    }
+    if (ICE_MODE === 'stun') {
+      return configuredStunIceServers();
+    }
+    if (ICE_MODE === 'turn') {
+      const configuredTurnServers = configuredTurnIceServers();
+      if (configuredTurnServers.length > 0) {
+        return configuredTurnServers;
+      }
+      return normalizedIceServers.filter(hasTurnUrl);
+    }
+    return normalizedIceServers.length > 0
+      ? normalizedIceServers
       : defaultIceServers();
   }
 
@@ -1522,9 +1585,13 @@
     candidates = [];
     hasReceivedSdp = false;
 
-    const peer = new RTCPeerConnection({
+    const rtcConfig = {
       iceServers: resolveIceServers(options.iceServers),
-    });
+    };
+    if (ICE_MODE === 'turn') {
+      rtcConfig.iceTransportPolicy = 'relay';
+    }
+    const peer = new RTCPeerConnection(rtcConfig);
     const attachDataChannel = (channel) => {
       if (dataChannel && dataChannel !== channel) {
         dataChannel.onopen = null;
@@ -1689,7 +1756,13 @@
       if (!shouldReconnect || reconnectTimer || !peerConnection) {
         return;
       }
+      if (document.hidden) {
+        return;
+      }
       const now = performance.now();
+      if (now - visibleSince < CONNECT_GRACE_MS) {
+        return;
+      }
       if (isVideoFrozen()) {
         if (AUTO_RECONNECT_ON_VIDEO_LOST) {
           scheduleReconnect('video lost');
@@ -2243,6 +2316,11 @@
   setVideoMirror(isMirrorEnabledByDefault());
   setAudioEnabled(false);
   setDebugOsd(isDebugEnabledByDefault());
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      visibleSince = performance.now();
+    }
+  });
   startFpsMonitor();
   startLinkMonitor();
   startStatsMonitor();
