@@ -18,7 +18,7 @@
   const RC_BRAKE_VALUE = getNumberParam('rcBrakeValue', 1300);
   const RC_BRAKE_DURATION_MS = getNumberParam('rcBrakeMs', 1000);
   const RC_BRAKE_THRESHOLD = getNumberParam('rcBrakeThreshold', 1700);
-  const RC_THROTTLE_GEAR_RATIOS = [0.4, 0.55, 0.7, 0.85, 1.0];
+  const RC_THROTTLE_GEAR_MAX_VALUES = [1600, 1700, 1800, 1900, 2000];
   const RC_INITIAL_GEAR = Math.max(1, Math.min(5, getIntegerParam('rcGear', 1)));
   const RC_STEERING_NEUTRAL_DEADBAND_US = getNumberParamAllowZero('rcSteeringNeutralDeadband', 10);
   const RC_THROTTLE_NEUTRAL_DEADBAND_US = getNumberParamAllowZero('rcThrottleNeutralDeadband', 10);
@@ -836,19 +836,15 @@
     return Math.max(minValue, Math.min(maxValue, Math.round(value)));
   }
 
-  function getThrottleGearRatio() {
-    return RC_THROTTLE_GEAR_RATIOS[currentGear - 1] || 1;
-  }
-
   function getThrottleGearMax() {
-    return 1500 + Math.round(500 * getThrottleGearRatio());
+    return RC_THROTTLE_GEAR_MAX_VALUES[currentGear - 1] || 2000;
   }
 
   function updateGearUi() {
     const throttleMax = getThrottleGearMax();
     throttleInput.max = String(throttleMax);
     if (gearState) {
-      gearState.textContent = `Gear ${currentGear} ${Math.round(getThrottleGearRatio() * 100)}%`;
+      gearState.textContent = `Gear ${currentGear} ${throttleMax}`;
     }
     for (const button of gearButtons) {
       button.setAttribute('aria-pressed', button.dataset.gear === String(currentGear) ? 'true' : 'false');
