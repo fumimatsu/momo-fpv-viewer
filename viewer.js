@@ -1318,9 +1318,18 @@
     roomLockHeartbeatTimer = null;
   }
 
+  function clearRoomLease(reason) {
+    if (!roomLease) {
+      return;
+    }
+    stopRoomLockHeartbeat();
+    roomLease = null;
+    recordEvent('room lease cleared', reason);
+  }
+
   async function heartbeatRoomLease() {
     if (!roomLockActive() || !roomLease) {
-      return;
+      return false;
     }
     try {
       const payload = await fetchRoomLockJson(roomLockEndpoint('/heartbeat'), {
@@ -1334,8 +1343,12 @@
       });
       roomLease = payload.lease || roomLease;
       roomLockStatus = payload;
+      return true;
     } catch (error) {
       recordEvent('room heartbeat failed', error.message || String(error));
+      clearRoomLease(error.message || 'heartbeat failed');
+      roomLockStatus = error.payload || roomLockStatus;
+      return false;
     }
   }
 
@@ -1352,8 +1365,11 @@
       return true;
     }
     if (roomLease) {
-      startRoomLockHeartbeat();
-      return true;
+      const valid = await heartbeatRoomLease();
+      if (valid) {
+        startRoomLockHeartbeat();
+        return true;
+      }
     }
 
     roomLockBusy = true;
