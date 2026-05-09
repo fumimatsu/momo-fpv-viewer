@@ -8,8 +8,9 @@
   const ROOM_FULL_RETRY_MAX_DELAY_MS = getNumberParam('roomFullRetryMaxMs', 30000);
   const VIDEO_FREEZE_TIMEOUT_MS = getNumberParam('videoFreezeMs', 12000);
   const CONNECT_GRACE_MS = getNumberParam('connectGraceMs', 15000);
+  const SIGNALING_MODE = getStringParam(['signaling', 'signalingMode'], 'p2p').toLowerCase();
   const AUTO_RECONNECT = getBooleanParam('autoReconnect', true);
-  const AUTO_RECONNECT_ON_VIDEO_LOST = getBooleanParam('videoReconnect', true);
+  const AUTO_RECONNECT_ON_VIDEO_LOST = getBooleanParam('videoReconnect', SIGNALING_MODE === 'ayame');
   const DEVICE_STATUS_MODE = getDeviceStatusMode();
   const RC_TX_INTERVAL_MS = getNumberParam('rcTxMs', 20);
   const RC_STEERING_THROW = getNumberParam('rcSteeringThrow', 400);
@@ -41,7 +42,6 @@
   const OSD_UPDATE_INTERVAL_MS = getNumberParam('osdMs', 100);
   const DC_PING_ENABLED = getBooleanParam('dcPing', false);
   const DC_PING_INTERVAL_MS = getNumberParam('dcPingMs', 1000);
-  const SIGNALING_MODE = getStringParam(['signaling', 'signalingMode'], 'p2p').toLowerCase();
   const AYAME_SIGNALING_URL = getStringParam(
     ['ayameUrl', 'signalingUrl'],
     'wss://ayame-labo.shiguredo.app/signaling',
@@ -1354,14 +1354,7 @@
     if (isDataChannelOpen()) {
       if (!roomLease && !roomLockBusy) {
         recordEvent('room lease recover', 'active connection');
-        const acquired = await acquireRoomLease();
-        if (!acquired) {
-          scheduleReconnect('room lock lost', {
-            force: true,
-            baseDelayMs: 1000,
-            maxDelayMs: 5000,
-          });
-        }
+        acquireRoomLease();
       }
       return;
     }
@@ -1423,7 +1416,8 @@
           driveEnabled: rcDriveEnabled,
         }),
       });
-      roomLease = payload.lease || roomLease;
+      const token = getRoomLeaseToken();
+      roomLease = payload.lease ? { ...payload.lease, token } : roomLease;
       roomLockStatus = payload;
       roomLockHeartbeatFailures = 0;
       return true;
@@ -1431,6 +1425,16 @@
       recordEvent('room heartbeat failed', error.message || String(error));
       roomLockStatus = error.payload || roomLockStatus;
       roomLockHeartbeatFailures += 1;
+      if (isConnectionActive()) {
+        if (error.status === 409) {
+          stopRoomLockHeartbeat();
+          roomLease = null;
+          roomLockHeartbeatFailures = 0;
+          recordEvent('room lease recover', 'heartbeat mismatch');
+          acquireRoomLease();
+        }
+        return true;
+      }
       if (error.status === 409 || roomLockHeartbeatFailures >= ROOM_LOCK_HEARTBEAT_MAX_FAILURES) {
         clearRoomLease(error.message || 'heartbeat failed');
       }
