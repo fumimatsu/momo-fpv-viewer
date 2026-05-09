@@ -1405,23 +1405,30 @@
     if (!roomLockActive() || !roomLease) {
       return false;
     }
+    const leaseToken = getRoomLeaseToken();
     try {
       const payload = await fetchRoomLockJson(roomLockEndpoint('/heartbeat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           clientId: AYAME_CLIENT_ID,
-          token: getRoomLeaseToken(),
+          token: leaseToken,
           ttlSec: ROOM_LOCK_TTL_SEC,
           driveEnabled: rcDriveEnabled,
         }),
       });
+      if (!roomLease || getRoomLeaseToken() !== leaseToken) {
+        return true;
+      }
       const token = getRoomLeaseToken();
       roomLease = payload.lease ? { ...payload.lease, token } : roomLease;
       roomLockStatus = payload;
       roomLockHeartbeatFailures = 0;
       return true;
     } catch (error) {
+      if (!roomLease || getRoomLeaseToken() !== leaseToken) {
+        return true;
+      }
       recordEvent('room heartbeat failed', error.message || String(error));
       roomLockStatus = error.payload || roomLockStatus;
       roomLockHeartbeatFailures += 1;
