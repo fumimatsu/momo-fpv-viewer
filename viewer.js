@@ -24,21 +24,23 @@
   const RC_INITIAL_GEAR = Math.max(1, Math.min(5, getIntegerParam('rcGear', 1)));
   const RC_STEERING_NEUTRAL_DEADBAND_US = getNumberParamAllowZero('rcSteeringNeutralDeadband', 10);
   const RC_THROTTLE_NEUTRAL_DEADBAND_US = getNumberParamAllowZero('rcThrottleNeutralDeadband', 10);
+  const GAMEPAD_PROFILE_STORAGE_KEY = 'fpvGamepadMapping';
+  const GAMEPAD_PROFILE = loadGamepadProfile();
   const GAMEPAD_ENABLED = getBooleanParam('gamepad', true);
-  const GAMEPAD_INDEX = getNumberParamAllowZero('gamepadIndex', 0);
-  const GAMEPAD_STEERING_AXIS = getNumberParamAllowZero('gamepadSteeringAxis', 0);
-  const GAMEPAD_STEERING_INVERT = getBooleanParam('gamepadSteeringInvert', false);
-  const GAMEPAD_STEERING_GAIN = getNumberParam('gamepadSteeringGain', 3.75);
-  const GAMEPAD_STEERING_DEADZONE = getNumberParamAllowZero('gamepadSteeringDeadzone', 0.03);
-  const GAMEPAD_THROTTLE_AXIS = getIntegerParam('gamepadThrottleAxis', 5);
-  const GAMEPAD_THROTTLE_INVERT = getBooleanParam('gamepadThrottleInvert', false);
-  const GAMEPAD_BRAKE_AXIS = getIntegerParam('gamepadBrakeAxis', 6);
-  const GAMEPAD_BRAKE_INVERT = getBooleanParam('gamepadBrakeInvert', false);
-  const GAMEPAD_PEDAL_DEADZONE = getNumberParamAllowZero('gamepadPedalDeadzone', 0.05);
-  const GAMEPAD_DRIVE_BUTTON = getIntegerParam('gamepadDriveButton', 8);
+  const GAMEPAD_INDEX = getNumberParamWithProfile('gamepadIndex', 'index', 0, true);
+  const GAMEPAD_STEERING_AXIS = getNumberParamWithProfile('gamepadSteeringAxis', 'steeringAxis', 0, true);
+  const GAMEPAD_STEERING_INVERT = getBooleanParamWithProfile('gamepadSteeringInvert', 'steeringInvert', false);
+  const GAMEPAD_STEERING_GAIN = getNumberParamWithProfile('gamepadSteeringGain', 'steeringGain', 3.75);
+  const GAMEPAD_STEERING_DEADZONE = getNumberParamWithProfile('gamepadSteeringDeadzone', 'steeringDeadzone', 0.03);
+  const GAMEPAD_THROTTLE_AXIS = getNumberParamWithProfile('gamepadThrottleAxis', 'throttleAxis', 5, true);
+  const GAMEPAD_THROTTLE_INVERT = getBooleanParamWithProfile('gamepadThrottleInvert', 'throttleInvert', false);
+  const GAMEPAD_BRAKE_AXIS = getNumberParamWithProfile('gamepadBrakeAxis', 'brakeAxis', 6, true);
+  const GAMEPAD_BRAKE_INVERT = getBooleanParamWithProfile('gamepadBrakeInvert', 'brakeInvert', false);
+  const GAMEPAD_PEDAL_DEADZONE = getNumberParamWithProfile('gamepadPedalDeadzone', 'pedalDeadzone', 0.05);
+  const GAMEPAD_DRIVE_BUTTON = getNumberParamWithProfile('gamepadDriveButton', 'driveButton', 8, true);
   const GAMEPAD_DRIVE_BUTTON_ENABLED = getBooleanParam('gamepadDriveButtonEnabled', true);
-  const GAMEPAD_PADDLE_LEFT_BUTTON = getIntegerParam('gamepadPaddleLeftButton', 0);
-  const GAMEPAD_PADDLE_RIGHT_BUTTON = getIntegerParam('gamepadPaddleRightButton', 1);
+  const GAMEPAD_PADDLE_LEFT_BUTTON = getNumberParamWithProfile('gamepadPaddleLeftButton', 'paddleLeftButton', 0, true);
+  const GAMEPAD_PADDLE_RIGHT_BUTTON = getNumberParamWithProfile('gamepadPaddleRightButton', 'paddleRightButton', 1, true);
   const OSD_UPDATE_INTERVAL_MS = getNumberParam('osdMs', 100);
   const DC_PING_ENABLED = getBooleanParam('dcPing', false);
   const DC_PING_INTERVAL_MS = getNumberParam('dcPingMs', 1000);
@@ -102,6 +104,7 @@
   const btnApplyMode = document.getElementById('btnApplyMode');
   const btnRefreshMode = document.getElementById('btnRefreshMode');
   const btnRefreshDevice = document.getElementById('btnRefreshDevice');
+  const btnInputSetup = document.getElementById('btnInputSetup');
   const btnDrive = document.getElementById('btnDrive');
   const btnSend = document.getElementById('btnSend');
   const btnNeutral = document.getElementById('btnNeutral');
@@ -199,6 +202,49 @@
       }
     });
     return params;
+  }
+
+  function loadGamepadProfile() {
+    try {
+      const raw = window.localStorage?.getItem(GAMEPAD_PROFILE_STORAGE_KEY);
+      if (!raw) {
+        return {};
+      }
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function getNumberParamWithProfile(paramName, profileName, defaultValue, integer = false) {
+    const params = getUrlParams();
+    const raw = params.get(paramName);
+    if (raw !== null) {
+      const value = Number(raw);
+      if (Number.isFinite(value)) {
+        return integer ? Math.trunc(value) : value;
+      }
+      return defaultValue;
+    }
+    const profileValue = GAMEPAD_PROFILE[profileName];
+    if (Number.isFinite(profileValue)) {
+      return integer ? Math.trunc(profileValue) : profileValue;
+    }
+    return defaultValue;
+  }
+
+  function getBooleanParamWithProfile(paramName, profileName, defaultValue) {
+    const params = getUrlParams();
+    const raw = params.get(paramName);
+    if (raw !== null) {
+      return raw !== '0' && raw !== 'false';
+    }
+    const profileValue = GAMEPAD_PROFILE[profileName];
+    if (typeof profileValue === 'boolean') {
+      return profileValue;
+    }
+    return defaultValue;
   }
 
   function getInitialHost() {
@@ -2515,6 +2561,12 @@
     return createStatusApiUrl('/mode');
   }
 
+  function openInputSetup() {
+    setDriveEnabled(false);
+    const url = new URL('gamepad.html', location.href);
+    window.open(url.toString(), '_blank', 'noopener');
+  }
+
   function formatMode(mode) {
     if (!mode) {
       return 'n/a';
@@ -2668,6 +2720,7 @@
       console.warn('refresh device failed:', error);
     });
   });
+  btnInputSetup.addEventListener('click', openInputSetup);
   window.addEventListener('keydown', onControlKeyDown);
   window.addEventListener('keyup', onControlKeyUp);
   remoteVideo.addEventListener('loadedmetadata', updateUiState);
@@ -2693,6 +2746,23 @@
       autoReconnectOnVideoLost: AUTO_RECONNECT_ON_VIDEO_LOST,
       autoReconnect: AUTO_RECONNECT,
       deviceStatusMode: DEVICE_STATUS_MODE,
+      gamepad: {
+        enabled: GAMEPAD_ENABLED,
+        index: GAMEPAD_INDEX,
+        steeringAxis: GAMEPAD_STEERING_AXIS,
+        steeringInvert: GAMEPAD_STEERING_INVERT,
+        steeringGain: GAMEPAD_STEERING_GAIN,
+        steeringDeadzone: GAMEPAD_STEERING_DEADZONE,
+        throttleAxis: GAMEPAD_THROTTLE_AXIS,
+        throttleInvert: GAMEPAD_THROTTLE_INVERT,
+        brakeAxis: GAMEPAD_BRAKE_AXIS,
+        brakeInvert: GAMEPAD_BRAKE_INVERT,
+        pedalDeadzone: GAMEPAD_PEDAL_DEADZONE,
+        driveButton: GAMEPAD_DRIVE_BUTTON,
+        paddleLeftButton: GAMEPAD_PADDLE_LEFT_BUTTON,
+        paddleRightButton: GAMEPAD_PADDLE_RIGHT_BUTTON,
+        profileId: GAMEPAD_PROFILE.id || '',
+      },
     }),
     getPeerConnection: () => peerConnection,
   };
