@@ -10,6 +10,7 @@ const clearMappingEl = document.getElementById("clearMapping");
 const openViewerEl = document.getElementById("openViewer");
 const assignStatusEl = document.getElementById("assignStatus");
 const captureButtons = Array.from(document.querySelectorAll(".captureButton"));
+const languageButtons = Array.from(document.querySelectorAll(".languageButton"));
 const optionInputs = {
   steeringInvert: document.getElementById("steeringInvert"),
   throttleInvert: document.getElementById("throttleInvert"),
@@ -20,6 +21,7 @@ const optionInputs = {
 };
 
 const storageKey = "fpvGamepadMapping";
+const languageStorageKey = "fpvGamepadLanguage";
 const axisDeadzone = 0.003;
 const recentMs = 700;
 const axisChangeThreshold = 0.01;
@@ -28,6 +30,124 @@ const states = new Map();
 
 let lastSeen = 0;
 let selectedGamepadIndex = null;
+let currentLanguage = loadLanguage();
+
+const translations = {
+  en: {
+    title: "FPV RC Gamepad Test",
+    pageTitle: "FPV RC Gamepad Test",
+    guideTitle: "Setup flow",
+    guideLead: "Use this page to find which wheel axes and buttons should control the FPV RC Viewer.",
+    step1: "Connect the wheel or controller to this device, then click this page once.",
+    step2: "Move only one control at a time. The row that lights up is the axis or button to assign.",
+    step3: "Set Steering, Throttle, Brake, Drive, and paddle buttons from the buttons under each row.",
+    step4: "Use invert, gain, and deadzone if the direction or sensitivity is wrong.",
+    step5: "Press Save for Viewer, then open the Viewer. The saved mapping is used automatically.",
+    notice: "Move only one control at a time. Use min/max/recent changes to identify steering, throttle, brake, and drive buttons.",
+    resetCalibration: "Reset calibration",
+    copyMapping: "Copy mapping",
+    copied: "Copied",
+    copyFailed: "Copy failed",
+    saveMapping: "Save for Viewer",
+    clearMapping: "Clear saved",
+    clearSaved: "Clear saved",
+    openViewer: "Open Viewer",
+    steeringInvert: "Steering invert",
+    throttleInvert: "Throttle invert",
+    brakeInvert: "Brake invert",
+    steeringGain: "Steering gain",
+    steeringDeadzone: "Steering deadzone",
+    pedalDeadzone: "Pedal deadzone",
+    captureIdle: "Capture idle",
+    captureSteeringLeft: "Capture steering left",
+    captureSteeringRight: "Capture steering right",
+    captureThrottleReleased: "Capture throttle released",
+    captureThrottlePressed: "Capture throttle pressed",
+    captureBrakeReleased: "Capture brake released",
+    captureBrakePressed: "Capture brake pressed",
+    captured: "Captured",
+    captureFailed: "Capture failed",
+    noGamepad: "No gamepad reported by the browser yet. Click this page and move the wheel or press a button.",
+    generatedMapping: "Generated mapping",
+    input: "input",
+    current: "current",
+    min: "min",
+    max: "max",
+    delta: "delta",
+    range: "range",
+    unknownGamepad: "Unknown gamepad",
+    set: "Set",
+    steering: "Steering",
+    throttle: "Throttle",
+    brake: "Brake",
+    drive: "Drive",
+    paddleLeft: "Paddle L",
+    paddleRight: "Paddle R",
+    savedForViewer: "saved for Viewer",
+    savedMappingCleared: "saved mapping cleared",
+    gamepads: "gamepad(s)",
+    lastSeen: "last seen",
+    msAgo: "ms ago",
+    notSeen: "not seen"
+  },
+  ja: {
+    title: "FPV RC ゲームパッド設定",
+    pageTitle: "FPV RC ゲームパッド設定",
+    guideTitle: "設定手順",
+    guideLead: "このページでは、ハンドルコントローラーやゲームパッドの軸 / ボタンを FPV RC Viewer の操作へ割り当てます。",
+    step1: "ハンコンまたはゲームパッドを接続し、このページを一度クリックします。",
+    step2: "一度に 1 つだけ操作します。光った行が割り当て対象の軸またはボタンです。",
+    step3: "各行の下にあるボタンで Steering、Throttle、Brake、Drive、パドルを割り当てます。",
+    step4: "向きや感度が合わない場合は invert、gain、deadzone を調整します。",
+    step5: "Save for Viewer を押してから Viewer を開きます。保存した割り当てが自動で使われます。",
+    notice: "一度に 1 つだけ操作してください。min / max / recent の変化を見て steering、throttle、brake、drive ボタンを特定します。",
+    resetCalibration: "キャリブレーションリセット",
+    copyMapping: "設定をコピー",
+    copied: "コピー済み",
+    copyFailed: "コピー失敗",
+    saveMapping: "Viewer 用に保存",
+    clearMapping: "保存を削除",
+    clearSaved: "保存を削除",
+    openViewer: "Viewer を開く",
+    steeringInvert: "ステアリング反転",
+    throttleInvert: "スロットル反転",
+    brakeInvert: "ブレーキ反転",
+    steeringGain: "ステアリング感度",
+    steeringDeadzone: "ステアリング遊び",
+    pedalDeadzone: "ペダル遊び",
+    captureIdle: "中立を記録",
+    captureSteeringLeft: "左ステアを記録",
+    captureSteeringRight: "右ステアを記録",
+    captureThrottleReleased: "スロットル未入力を記録",
+    captureThrottlePressed: "スロットル踏み込みを記録",
+    captureBrakeReleased: "ブレーキ未入力を記録",
+    captureBrakePressed: "ブレーキ踏み込みを記録",
+    captured: "記録済み",
+    captureFailed: "記録失敗",
+    noGamepad: "ブラウザがまだゲームパッドを認識していません。このページをクリックしてから、ハンドルを動かすかボタンを押してください。",
+    generatedMapping: "生成された設定",
+    input: "入力",
+    current: "現在値",
+    min: "最小",
+    max: "最大",
+    delta: "変化",
+    range: "範囲",
+    unknownGamepad: "不明なゲームパッド",
+    set: "割り当て",
+    steering: "ステアリング",
+    throttle: "スロットル",
+    brake: "ブレーキ",
+    drive: "Drive",
+    paddleLeft: "左パドル",
+    paddleRight: "右パドル",
+    savedForViewer: "Viewer 用に保存しました",
+    savedMappingCleared: "保存した設定を削除しました",
+    gamepads: "gamepad",
+    lastSeen: "最終認識",
+    msAgo: "ms 前",
+    notSeen: "未認識"
+  }
+};
 
 const mapping = {
   id: "",
@@ -48,6 +168,39 @@ const mapping = {
   paddleLeftButton: null,
   paddleRightButton: null
 };
+
+function loadLanguage() {
+  const saved = window.localStorage?.getItem(languageStorageKey);
+  if (saved === "ja" || saved === "en") {
+    return saved;
+  }
+  return navigator.language?.toLowerCase().startsWith("ja") ? "ja" : "en";
+}
+
+function t(key) {
+  return translations[currentLanguage]?.[key] || translations.en[key] || key;
+}
+
+function applyLanguage() {
+  document.documentElement.lang = currentLanguage;
+  document.title = t("pageTitle");
+  document.querySelectorAll("[data-i18n]").forEach((element) => {
+    const key = element.dataset.i18n;
+    element.textContent = t(key);
+  });
+  languageButtons.forEach((button) => {
+    const active = button.dataset.lang === currentLanguage;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
+
+function setLanguage(language) {
+  currentLanguage = language === "ja" ? "ja" : "en";
+  window.localStorage?.setItem(languageStorageKey, currentLanguage);
+  applyLanguage();
+  updateMappingOutput();
+}
 
 function formatValue(value) {
   const normalized = Math.abs(value) < axisDeadzone ? 0 : value;
@@ -197,9 +350,9 @@ function updateState(gamepad) {
 function makeHeaderRow() {
   const row = document.createElement("div");
   row.className = "row header";
-  for (const text of ["input", "current", "min", "max", "delta", "range"]) {
+  for (const key of ["input", "current", "min", "max", "delta", "range"]) {
     const cell = document.createElement("div");
-    cell.textContent = text;
+    cell.textContent = t(key);
     row.appendChild(cell);
   }
   return row;
@@ -241,17 +394,18 @@ function makeActions(type, index) {
 
   const labels = type === "axis"
     ? [
-      ["steeringAxis", "Steering"],
-      ["throttleAxis", "Throttle"],
-      ["brakeAxis", "Brake"]
+      ["steeringAxis", "steering"],
+      ["throttleAxis", "throttle"],
+      ["brakeAxis", "brake"]
     ]
     : [
-      ["driveButton", "Drive"],
-      ["paddleLeftButton", "Paddle L"],
-      ["paddleRightButton", "Paddle R"]
+      ["driveButton", "drive"],
+      ["paddleLeftButton", "paddleLeft"],
+      ["paddleRightButton", "paddleRight"]
     ];
 
-  for (const [field, label] of labels) {
+  for (const [field, labelKey] of labels) {
+    const label = t(labelKey);
     const button = document.createElement("button");
     button.type = "button";
     button.dataset.field = field;
@@ -260,7 +414,7 @@ function makeActions(type, index) {
       button.classList.add("assigned");
       button.textContent = `${label}: ${index}`;
     } else {
-      button.textContent = `Set ${label}`;
+      button.textContent = `${t("set")} ${label}`;
     }
     actions.appendChild(button);
   }
@@ -275,7 +429,7 @@ function renderGamepad(gamepad) {
   pad.className = "pad";
 
   const title = document.createElement("h2");
-  title.textContent = `#${gamepad.index} ${gamepad.id || "Unknown gamepad"}`;
+  title.textContent = `#${gamepad.index} ${gamepad.id || t("unknownGamepad")}`;
   pad.appendChild(title);
 
   const meta = document.createElement("div");
@@ -332,17 +486,17 @@ function updateMappingOutput() {
 function fieldLabel(field) {
   switch (field) {
     case "steeringAxis":
-      return "Steering";
+      return t("steering");
     case "throttleAxis":
-      return "Throttle";
+      return t("throttle");
     case "brakeAxis":
-      return "Brake";
+      return t("brake");
     case "driveButton":
-      return "Drive";
+      return t("drive");
     case "paddleLeftButton":
-      return "Paddle L";
+      return t("paddleLeft");
     case "paddleRightButton":
-      return "Paddle R";
+      return t("paddleRight");
     default:
       return field;
   }
@@ -358,12 +512,12 @@ function saveMapping() {
   syncMappingFromOptions();
   window.localStorage?.setItem(storageKey, JSON.stringify(mapping));
   updateMappingOutput();
-  assignStatusEl.textContent = "saved for Viewer";
+  assignStatusEl.textContent = t("savedForViewer");
 }
 
 function clearSavedMapping() {
   window.localStorage?.removeItem(storageKey);
-  assignStatusEl.textContent = "saved mapping cleared";
+  assignStatusEl.textContent = t("savedMappingCleared");
 }
 
 function resetCalibration() {
@@ -398,7 +552,7 @@ function snapshotGamepads(label) {
 async function captureGamepad(label, button) {
   const payload = snapshotGamepads(label);
   if (payload.pads.length === 0) {
-    assignStatusEl.textContent = `capture ${label}: no gamepad`;
+    assignStatusEl.textContent = `${t("captureFailed")}: ${label}`;
     return;
   }
   try {
@@ -407,16 +561,16 @@ async function captureGamepad(label, button) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
-    assignStatusEl.textContent = `captured ${label}`;
+    assignStatusEl.textContent = `${t("captured")} ${label}`;
     if (button) {
-      button.textContent = `Captured ${label}`;
+      button.textContent = `${t("captured")} ${label}`;
       setTimeout(() => {
-        button.textContent = button.dataset.originalText || button.textContent;
+        button.textContent = t(button.dataset.i18n) || button.dataset.originalText || button.textContent;
       }, 900);
     }
   } catch (error) {
     console.error("capture failed", error);
-    assignStatusEl.textContent = `capture failed: ${label}`;
+    assignStatusEl.textContent = `${t("captureFailed")}: ${label}`;
   }
 }
 
@@ -427,7 +581,7 @@ function render() {
   if (gamepads.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty";
-    empty.textContent = "No gamepad reported by the browser yet. Click this page and move the wheel or press a button.";
+    empty.textContent = t("noGamepad");
     padsEl.appendChild(empty);
   } else {
     lastSeen = performance.now();
@@ -441,8 +595,10 @@ function render() {
     }
   }
 
-  const ageText = lastSeen > 0 ? `last seen ${(performance.now() - lastSeen).toFixed(0)} ms ago` : "not seen";
-  statusEl.textContent = `${gamepads.length} gamepad(s), ${ageText}`;
+  const ageText = lastSeen > 0
+    ? `${t("lastSeen")} ${(performance.now() - lastSeen).toFixed(0)} ${t("msAgo")}`
+    : t("notSeen");
+  statusEl.textContent = `${gamepads.length} ${t("gamepads")}, ${ageText}`;
   updateMappingOutput();
   requestAnimationFrame(render);
 }
@@ -475,15 +631,15 @@ resetCalibrationEl.addEventListener("click", () => {
 copyMappingEl.addEventListener("click", async () => {
   try {
     await navigator.clipboard.writeText(mappingOutputEl.textContent);
-    copyMappingEl.textContent = "Copied";
+    copyMappingEl.textContent = t("copied");
     setTimeout(() => {
-      copyMappingEl.textContent = "Copy mapping";
+      copyMappingEl.textContent = t("copyMapping");
     }, 900);
   } catch (error) {
     console.error("copy failed", error);
-    copyMappingEl.textContent = "Copy failed";
+    copyMappingEl.textContent = t("copyFailed");
     setTimeout(() => {
-      copyMappingEl.textContent = "Copy mapping";
+      copyMappingEl.textContent = t("copyMapping");
     }, 1200);
   }
 });
@@ -509,4 +665,10 @@ captureButtons.forEach((button) => {
 
 loadSavedMapping();
 syncOptionsFromMapping();
+applyLanguage();
+languageButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    setLanguage(button.dataset.lang);
+  });
+});
 render();

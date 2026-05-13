@@ -42,6 +42,57 @@
       line-height: 1.55;
     }
 
+    .guide {
+      margin: 0 0 18px;
+      padding: 14px;
+      border: 1px solid #39424d;
+      border-radius: 8px;
+      background: #171b20;
+    }
+
+    .guide-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .guide h2 {
+      margin: 0;
+      font-size: 16px;
+    }
+
+    .guide p {
+      margin: 0 0 10px;
+      color: #d6e2f0;
+      line-height: 1.55;
+    }
+
+    .guide ol {
+      margin: 0;
+      padding-left: 22px;
+      color: #d6e2f0;
+      line-height: 1.55;
+    }
+
+    .language-switch {
+      display: flex;
+      gap: 6px;
+      flex: 0 0 auto;
+    }
+
+    .language-switch button {
+      min-height: 30px;
+      padding: 0 10px;
+      font-size: 13px;
+    }
+
+    .language-switch button.active {
+      border-color: #7adf8f;
+      background: #1d3b29;
+    }
+
     .toolbar {
       display: flex;
       flex-wrap: wrap;
@@ -221,40 +272,57 @@
 </head>
 <body>
   <header>
-    <h1>FPV RC Gamepad Test</h1>
+    <h1 data-i18n="title">FPV RC Gamepad Test</h1>
     <div id="status" class="status">waiting</div>
   </header>
-  <div class="notice">
-    Click this page, then move only one control at a time. Use min/max/recent changes to identify steering, throttle, brake, and drive buttons.
+  <section class="guide" aria-labelledby="guideTitle">
+    <div class="guide-header">
+      <h2 id="guideTitle" data-i18n="guideTitle">Setup flow</h2>
+      <div class="language-switch" aria-label="Language">
+        <button class="languageButton" type="button" data-lang="ja">日本語</button>
+        <button class="languageButton" type="button" data-lang="en">English</button>
+      </div>
+    </div>
+    <p data-i18n="guideLead">Use this page to find which wheel axes and buttons should control the FPV RC Viewer.</p>
+    <ol>
+      <li data-i18n="step1">Connect the wheel or controller to this device, then click this page once.</li>
+      <li data-i18n="step2">Move only one control at a time. The row that lights up is the axis or button to assign.</li>
+      <li data-i18n="step3">Set Steering, Throttle, Brake, Drive, and paddle buttons from the buttons under each row.</li>
+      <li data-i18n="step4">Use invert, gain, and deadzone if the direction or sensitivity is wrong.</li>
+      <li data-i18n="step5">Press Save for Viewer, then open the Viewer. The saved mapping is used automatically.</li>
+    </ol>
+  </section>
+  <div class="notice" data-i18n="notice">
+    Move only one control at a time. Use min/max/recent changes to identify steering, throttle, brake, and drive buttons.
   </div>
   <div class="toolbar">
-    <button id="resetCalibration" type="button">Reset calibration</button>
-    <button id="copyMapping" type="button">Copy mapping</button>
-    <button id="saveMapping" type="button">Save for Viewer</button>
-    <button id="clearMapping" type="button">Clear saved</button>
-    <a id="openViewer" class="viewer-link" href="./viewer.html" target="_blank" rel="noreferrer">Open Viewer</a>
+    <button id="resetCalibration" type="button" data-i18n="resetCalibration">Reset calibration</button>
+    <button id="copyMapping" type="button" data-i18n="copyMapping">Copy mapping</button>
+    <button id="saveMapping" type="button" data-i18n="saveMapping">Save for Viewer</button>
+    <button id="clearMapping" type="button" data-i18n="clearMapping">Clear saved</button>
+    <a id="openViewer" class="viewer-link" href="./viewer.html" target="_blank" rel="noreferrer" data-i18n="openViewer">Open Viewer</a>
     <div id="assignStatus" class="assign-status"></div>
   </div>
   <div class="toolbar mapping-options">
-    <label><input id="steeringInvert" type="checkbox"> Steering invert</label>
-    <label><input id="throttleInvert" type="checkbox"> Throttle invert</label>
-    <label><input id="brakeInvert" type="checkbox"> Brake invert</label>
-    <label>Steering gain <input id="steeringGain" type="number" min="0.2" max="8" step="0.05" value="4"></label>
-    <label>Steering deadzone <input id="steeringDeadzone" type="number" min="0" max="0.5" step="0.01" value="0.03"></label>
-    <label>Pedal deadzone <input id="pedalDeadzone" type="number" min="0" max="0.5" step="0.01" value="0.05"></label>
+    <label><input id="steeringInvert" type="checkbox"> <span data-i18n="steeringInvert">Steering invert</span></label>
+    <label><input id="throttleInvert" type="checkbox"> <span data-i18n="throttleInvert">Throttle invert</span></label>
+    <label><input id="brakeInvert" type="checkbox"> <span data-i18n="brakeInvert">Brake invert</span></label>
+    <label><span data-i18n="steeringGain">Steering gain</span> <input id="steeringGain" type="number" min="0.2" max="8" step="0.05" value="4"></label>
+    <label><span data-i18n="steeringDeadzone">Steering deadzone</span> <input id="steeringDeadzone" type="number" min="0" max="0.5" step="0.01" value="0.03"></label>
+    <label><span data-i18n="pedalDeadzone">Pedal deadzone</span> <input id="pedalDeadzone" type="number" min="0" max="0.5" step="0.01" value="0.05"></label>
   </div>
   <div class="toolbar">
-    <button class="captureButton" type="button" data-label="idle">Capture idle</button>
-    <button class="captureButton" type="button" data-label="steering_left">Capture steering left</button>
-    <button class="captureButton" type="button" data-label="steering_right">Capture steering right</button>
-    <button class="captureButton" type="button" data-label="throttle_released">Capture throttle released</button>
-    <button class="captureButton" type="button" data-label="throttle_pressed">Capture throttle pressed</button>
-    <button class="captureButton" type="button" data-label="brake_released">Capture brake released</button>
-    <button class="captureButton" type="button" data-label="brake_pressed">Capture brake pressed</button>
+    <button class="captureButton" type="button" data-label="idle" data-i18n="captureIdle">Capture idle</button>
+    <button class="captureButton" type="button" data-label="steering_left" data-i18n="captureSteeringLeft">Capture steering left</button>
+    <button class="captureButton" type="button" data-label="steering_right" data-i18n="captureSteeringRight">Capture steering right</button>
+    <button class="captureButton" type="button" data-label="throttle_released" data-i18n="captureThrottleReleased">Capture throttle released</button>
+    <button class="captureButton" type="button" data-label="throttle_pressed" data-i18n="captureThrottlePressed">Capture throttle pressed</button>
+    <button class="captureButton" type="button" data-label="brake_released" data-i18n="captureBrakeReleased">Capture brake released</button>
+    <button class="captureButton" type="button" data-label="brake_pressed" data-i18n="captureBrakePressed">Capture brake pressed</button>
   </div>
   <main id="pads" class="grid"></main>
   <section class="mapping">
-    <h2>Generated mapping</h2>
+    <h2 data-i18n="generatedMapping">Generated mapping</h2>
     <pre id="mappingOutput">{}</pre>
   </section>
   <script src="./gamepad.js"></script>

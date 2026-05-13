@@ -44,9 +44,10 @@
   const OSD_UPDATE_INTERVAL_MS = getNumberParam('osdMs', 100);
   const DC_PING_ENABLED = getBooleanParam('dcPing', false);
   const DC_PING_INTERVAL_MS = getNumberParam('dcPingMs', 1000);
+  const DEFAULT_AYAME_SIGNALING_URL = 'wss://133.88.123.51.nip.io/signaling';
   const AYAME_SIGNALING_URL = getStringParam(
     ['ayameUrl', 'signalingUrl'],
-    'wss://ayame-labo.shiguredo.app/signaling',
+    DEFAULT_AYAME_SIGNALING_URL,
   );
   const AYAME_ROOM_ID = getStringParam(['roomId', 'ayameRoomId'], '');
   const AYAME_CLIENT_ID = getAyameClientId();
@@ -57,6 +58,11 @@
   const TURN_URLS = getStringListParam(['turnUrls', 'turnUrl'], []);
   const TURN_USERNAME = getStringParam(['turnUsername', 'turnUser'], '');
   const TURN_CREDENTIAL = getStringParam(['turnCredential', 'turnPassword'], '');
+  const AUDIO_FILTER_DEFAULT = getBooleanParam('audioFilter', false);
+  const AUDIO_FILTER_Q = getNumberParam('audioFilterQ', 24);
+  const AUDIO_FILTER_FREQS = getStringListParam(['audioFilterFreqs'], ['50', '100', '150'])
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value) && value > 0);
   const ROOM_LOCK_ENABLED = getBooleanParam('roomLock', SIGNALING_MODE === 'ayame');
   const ROOM_LOCK_URL = normalizeBaseUrl(getStringParam(['lockUrl', 'roomLockUrl'], defaultRoomLockUrl()));
   const ROOM_LOCK_TTL_SEC = getNumberParam('roomLockTtl', 30);
@@ -99,6 +105,7 @@
   const btnFlip = document.getElementById('btnFlip');
   const btnMirror = document.getElementById('btnMirror');
   const btnAudio = document.getElementById('btnAudio');
+  const btnAudioFilter = document.getElementById('btnAudioFilter');
   const btnDebug = document.getElementById('btnDebug');
   const modeSelect = document.getElementById('modeSelect');
   const btnApplyMode = document.getElementById('btnApplyMode');
@@ -178,6 +185,11 @@
   let lastGamepadAt = 0;
   let lastGamepadStatus = 'n/a';
   let ayameIceServers = [];
+  let audioContext = null;
+  let audioSourceNode = null;
+  let audioGainNode = null;
+  let audioFilterNodes = [];
+  let audioFilterEnabled = false;
   let roomLease = null;
   let roomLockStatus = null;
   let roomLockBusy = false;
@@ -434,15 +446,90 @@
     setVideoMirror(!document.body.classList.contains('mirror-video'));
   }
 
+  function ensureAudioGraph() {
+    if (audioContext && audioSourceNode && audioGainNode) {
+      return true;
+    }
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) {
+      recordEvent('audio filter unavailable', 'no AudioContext');
+      return false;
+    }
+    try {
+      audioContext = audioContext || new AudioContextCtor();
+      audioSourceNode = audioSourceNode || audioContext.createMediaElementSource(remoteVideo);
+      audioGainNode = audioGainNode || audioContext.createGain();
+      audioFilterNodes = AUDIO_FILTER_FREQS.map((frequency) => {
+        const filter = audioContext.createBiquadFilter();
+        filter.type = 'notch';
+        filter.frequency.value = frequency;
+        filter.Q.value = AUDIO_FILTER_Q;
+        return filter;
+      });
+      connectAudioGraph();
+      return true;
+    } catch (error) {
+      recordEvent('audio filter failed', error.message || String(error));
+      return false;
+    }
+  }
+
+  function connectAudioGraph() {
+    if (!audioSourceNode || !audioGainNode || !audioContext) {
+      return;
+    }
+    try {
+      audioSourceNode.disconnect();
+      audioFilterNodes.forEach((node) => node.disconnect());
+      audioGainNode.disconnect();
+    } catch (_) {
+    }
+
+    let node = audioSourceNode;
+    if (audioFilterEnabled) {
+      for (const filter of audioFilterNodes) {
+        node.connect(filter);
+        node = filter;
+      }
+    }
+    node.connect(audioGainNode);
+    audioGainNode.connect(audioContext.destination);
+    audioGainNode.gain.value = remoteVideo.muted ? 0 : 1;
+  }
+
+  function setAudioFilterEnabled(enabled) {
+    audioFilterEnabled = Boolean(enabled);
+    if (btnAudioFilter) {
+      btnAudioFilter.textContent = audioFilterEnabled ? 'Filter On' : 'Filter';
+      btnAudioFilter.setAttribute('aria-pressed', audioFilterEnabled ? 'true' : 'false');
+    }
+    if (!audioFilterEnabled && !audioContext) {
+      return;
+    }
+    if (ensureAudioGraph()) {
+      connectAudioGraph();
+    }
+  }
+
+  function toggleAudioFilter() {
+    setAudioFilterEnabled(!audioFilterEnabled);
+    audioContext?.resume?.().catch(() => {});
+    remoteVideo.play?.().catch(() => {});
+  }
+
   function setAudioEnabled(enabled) {
     remoteVideo.muted = !enabled;
     remoteVideo.volume = enabled ? 1 : 0;
+    if (audioGainNode) {
+      audioGainNode.gain.value = enabled ? 1 : 0;
+    }
     btnAudio.textContent = enabled ? 'Audio On' : 'Audio';
     btnAudio.setAttribute('aria-pressed', enabled ? 'true' : 'false');
   }
 
   function toggleAudio() {
     setAudioEnabled(remoteVideo.muted);
+    audioContext?.resume?.().catch(() => {});
     remoteVideo.play?.().catch(() => {});
   }
 
@@ -1602,11 +1689,10 @@
     }
 
     if (sendSignalingClose &&
-        !isAyameSignaling() &&
         currentWs &&
         currentWs.readyState === WebSocket.OPEN) {
       try {
-        currentWs.send(JSON.stringify({ type: 'close' }));
+        currentWs.send(JSON.stringify({ type: isAyameSignaling() ? 'bye' : 'close' }));
       } catch (_) {
       }
     }
@@ -1661,6 +1747,17 @@
     setDriveEnabled(false);
     closeTransport({ sendSignalingClose: true });
     releaseRoomLease();
+  }
+
+  function shutdownForPageHide() {
+    shouldReconnect = false;
+    reconnectAttempt = 0;
+    reconnectReason = '';
+    lastEvent = 'page hide';
+    clearReconnectTimer();
+    setDriveEnabled(false);
+    closeTransport({ sendSignalingClose: true });
+    releaseRoomLease({ beacon: true });
   }
 
   function scheduleReconnect(reason, options = {}) {
@@ -2011,7 +2108,18 @@
       rtcConfig.iceTransportPolicy = 'relay';
     }
     const peer = new RTCPeerConnection(rtcConfig);
-    const attachDataChannel = (channel) => {
+    const attachDataChannel = (channel, source = 'remote') => {
+      if (
+        source === 'remote' &&
+        channel.label === 'serial' &&
+        dataChannel &&
+        dataChannel !== channel &&
+        dataChannel.readyState !== 'closed'
+      ) {
+        recordEvent('dc duplicate ignored');
+        channel.close();
+        return;
+      }
       if (dataChannel && dataChannel !== channel) {
         dataChannel.onopen = null;
         dataChannel.onclose = null;
@@ -2044,12 +2152,12 @@
       updateUiState();
     };
 
-    peer.ondatachannel = (event) => attachDataChannel(event.channel);
+    peer.ondatachannel = (event) => attachDataChannel(event.channel, 'remote');
 
     attachDataChannel(peer.createDataChannel('serial', {
       ordered: false,
       maxRetransmits: 0,
-    }));
+    }), 'local');
 
     const mediaStream = new MediaStream();
     remoteVideo.srcObject = mediaStream;
@@ -2707,6 +2815,7 @@
   btnFlip.addEventListener('click', toggleVideoFlip);
   btnMirror.addEventListener('click', toggleVideoMirror);
   btnAudio.addEventListener('click', toggleAudio);
+  btnAudioFilter?.addEventListener('click', toggleAudioFilter);
   btnDebug.addEventListener('click', toggleDebugOsd);
   modeSelect.addEventListener('change', () => setModeUiEnabled(isDebugOsdEnabled() && modeOptions.length > 0));
   btnApplyMode.addEventListener('click', applySelectedMode);
@@ -2746,6 +2855,12 @@
       autoReconnectOnVideoLost: AUTO_RECONNECT_ON_VIDEO_LOST,
       autoReconnect: AUTO_RECONNECT,
       deviceStatusMode: DEVICE_STATUS_MODE,
+      audioFilter: {
+        enabled: audioFilterEnabled,
+        frequencies: AUDIO_FILTER_FREQS.slice(),
+        q: AUDIO_FILTER_Q,
+        contextState: audioContext?.state || 'none',
+      },
       gamepad: {
         enabled: GAMEPAD_ENABLED,
         index: GAMEPAD_INDEX,
@@ -2770,15 +2885,14 @@
   setVideoFlip(isFlipEnabledByDefault());
   setVideoMirror(isMirrorEnabledByDefault());
   setAudioEnabled(false);
+  setAudioFilterEnabled(AUDIO_FILTER_DEFAULT);
   setDebugOsd(isDebugEnabledByDefault());
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
       visibleSince = performance.now();
     }
   });
-  window.addEventListener('pagehide', () => {
-    releaseRoomLease({ beacon: true });
-  });
+  window.addEventListener('pagehide', shutdownForPageHide);
   startFpsMonitor();
   startLinkMonitor();
   startStatsMonitor();
