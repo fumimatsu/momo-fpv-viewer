@@ -63,6 +63,8 @@
   const AUDIO_FILTER_FREQS = getStringListParam(['audioFilterFreqs'], ['50', '100', '150'])
     .map((value) => Number(value))
     .filter((value) => Number.isFinite(value) && value > 0);
+  const MIC_DEFAULT_VOLUME = Math.max(0, Math.min(200, getNumberParamAllowZero('micVolume', 100)));
+  const MIC_METER_INTERVAL_MS = 100;
   const ROOM_LOCK_ENABLED = getBooleanParam('roomLock', SIGNALING_MODE === 'ayame');
   const ROOM_LOCK_URL = normalizeBaseUrl(getStringParam(['lockUrl', 'roomLockUrl'], defaultRoomLockUrl()));
   const ROOM_LOCK_TTL_SEC = getNumberParam('roomLockTtl', 30);
@@ -106,6 +108,9 @@
   const btnMirror = document.getElementById('btnMirror');
   const btnAudio = document.getElementById('btnAudio');
   const btnAudioFilter = document.getElementById('btnAudioFilter');
+  const btnMic = document.getElementById('btnMic');
+  const micVolumeInput = document.getElementById('micVolume');
+  const micMeter = document.getElementById('micMeter');
   const btnDebug = document.getElementById('btnDebug');
   const modeSelect = document.getElementById('modeSelect');
   const btnApplyMode = document.getElementById('btnApplyMode');
@@ -190,6 +195,16 @@
   let audioGainNode = null;
   let audioFilterNodes = [];
   let audioFilterEnabled = false;
+  let audioSender = null;
+  let micEnabled = false;
+  let micStream = null;
+  let micAudioContext = null;
+  let micSourceNode = null;
+  let micGainNode = null;
+  let micAnalyserNode = null;
+  let micDestinationNode = null;
+  let micOutputTrack = null;
+  let micMeterTimer = null;
   let roomLease = null;
   let roomLockStatus = null;
   let roomLockBusy = false;
@@ -533,6 +548,186 @@
     remoteVideo.play?.().catch(() => {});
   }
 
+  function canUseMicrophone() {
+    return Boolean(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  }
+
+  function isMicrophoneOriginAllowed() {
+    return window.isSecureContext || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  }
+
+  function getMicVolume() {
+    const value = Number(micVolumeInput?.value ?? MIC_DEFAULT_VOLUME);
+    return Number.isFinite(value) ? Math.max(0, Math.min(200, value)) : MIC_DEFAULT_VOLUME;
+  }
+
+  function setMicMeterLevel(level) {
+    if (!micMeter) {
+      return;
+    }
+    micMeter.dataset.level = String(Math.max(0, Math.min(4, Math.round(level))));
+  }
+
+  function updateMicUi(detail = '') {
+    if (!btnMic) {
+      return;
+    }
+    const blocked = !canUseMicrophone() || !isMicrophoneOriginAllowed();
+    btnMic.disabled = blocked;
+    if (blocked) {
+      btnMic.textContent = 'Mic Block';
+      btnMic.title = 'Microphone requires HTTPS, localhost, or a browser insecure-origin exception.';
+      btnMic.setAttribute('aria-pressed', 'false');
+      setMicMeterLevel(0);
+      return;
+    }
+    btnMic.textContent = micEnabled ? 'Mic On' : 'Mic';
+    btnMic.title = detail || (micEnabled ? 'Sending browser microphone to the car speaker.' : 'Start sending browser microphone to the car speaker.');
+    btnMic.setAttribute('aria-pressed', micEnabled ? 'true' : 'false');
+    if (!micEnabled) {
+      setMicMeterLevel(0);
+    }
+  }
+
+  function setMicVolume(value = getMicVolume()) {
+    const volume = Math.max(0, Math.min(200, Number(value) || 0));
+    if (micVolumeInput && micVolumeInput.value !== String(volume)) {
+      micVolumeInput.value = String(volume);
+    }
+    if (micGainNode) {
+      micGainNode.gain.value = volume / 100;
+    }
+  }
+
+  function startMicMeter() {
+    if (micMeterTimer || !micAnalyserNode) {
+      return;
+    }
+    const samples = new Uint8Array(micAnalyserNode.fftSize);
+    micMeterTimer = window.setInterval(() => {
+      if (!micEnabled || !micAnalyserNode) {
+        setMicMeterLevel(0);
+        return;
+      }
+      micAnalyserNode.getByteTimeDomainData(samples);
+      let peak = 0;
+      for (const value of samples) {
+        peak = Math.max(peak, Math.abs(value - 128));
+      }
+      setMicMeterLevel(Math.min(4, Math.ceil((peak / 128) * 5)));
+    }, MIC_METER_INTERVAL_MS);
+  }
+
+  function stopMicMeter() {
+    if (micMeterTimer) {
+      window.clearInterval(micMeterTimer);
+      micMeterTimer = null;
+    }
+    setMicMeterLevel(0);
+  }
+
+  function stopLocalMic() {
+    if (micStream) {
+      for (const track of micStream.getTracks()) {
+        try { track.stop(); } catch (_) {}
+      }
+    }
+    if (micOutputTrack) {
+      try { micOutputTrack.stop(); } catch (_) {}
+    }
+    try { micSourceNode?.disconnect(); } catch (_) {}
+    try { micGainNode?.disconnect(); } catch (_) {}
+    try { micAnalyserNode?.disconnect(); } catch (_) {}
+    micStream = null;
+    micSourceNode = null;
+    micGainNode = null;
+    micAnalyserNode = null;
+    micDestinationNode = null;
+    micOutputTrack = null;
+    stopMicMeter();
+  }
+
+  async function attachMicTrackToSender() {
+    if (!audioSender) {
+      return;
+    }
+    await audioSender.replaceTrack(micEnabled ? micOutputTrack : null);
+  }
+
+  async function ensureLocalMic() {
+    if (micOutputTrack && micOutputTrack.readyState === 'live') {
+      setMicVolume();
+      return;
+    }
+    if (!canUseMicrophone()) {
+      throw new Error('microphone API unavailable');
+    }
+    if (!isMicrophoneOriginAllowed()) {
+      throw new Error('microphone requires HTTPS or localhost');
+    }
+
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) {
+      throw new Error('AudioContext unavailable');
+    }
+
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+      video: false,
+    });
+    micAudioContext = micAudioContext || new AudioContextCtor();
+    await micAudioContext.resume?.();
+    micSourceNode = micAudioContext.createMediaStreamSource(micStream);
+    micGainNode = micAudioContext.createGain();
+    micAnalyserNode = micAudioContext.createAnalyser();
+    micAnalyserNode.fftSize = 256;
+    micDestinationNode = micAudioContext.createMediaStreamDestination();
+    micSourceNode.connect(micGainNode);
+    micGainNode.connect(micAnalyserNode);
+    micAnalyserNode.connect(micDestinationNode);
+    micOutputTrack = micDestinationNode.stream.getAudioTracks()[0] || null;
+    if (!micOutputTrack) {
+      throw new Error('microphone output track unavailable');
+    }
+    micOutputTrack.enabled = true;
+    setMicVolume();
+    startMicMeter();
+  }
+
+  async function setMicEnabled(enabled) {
+    if (!btnMic) {
+      return;
+    }
+    if (!enabled) {
+      micEnabled = false;
+      await attachMicTrackToSender().catch(() => {});
+      stopLocalMic();
+      updateMicUi();
+      return;
+    }
+
+    try {
+      await ensureLocalMic();
+      micEnabled = true;
+      await attachMicTrackToSender();
+      updateMicUi();
+      recordEvent('mic on');
+    } catch (error) {
+      micEnabled = false;
+      stopLocalMic();
+      updateMicUi(error.message || String(error));
+      recordEvent('mic failed', error.message || String(error));
+    }
+  }
+
+  function toggleMic() {
+    setMicEnabled(!micEnabled);
+  }
+
   function setText(element, value) {
     if (!element) {
       return;
@@ -579,6 +774,7 @@
     if (btnDisconnect) {
       btnDisconnect.disabled = !active;
     }
+    updateMicUi();
   }
 
   function updateTimerUi() {
@@ -1717,6 +1913,7 @@
       }
     }
     dataChannel = null;
+    audioSender = null;
     peerConnection = null;
     ws = null;
     candidates = [];
@@ -1745,6 +1942,8 @@
     connectedAt = 0;
     clearReconnectTimer();
     setDriveEnabled(false);
+    micEnabled = false;
+    stopLocalMic();
     closeTransport({ sendSignalingClose: true });
     releaseRoomLease();
   }
@@ -1756,6 +1955,8 @@
     lastEvent = 'page hide';
     clearReconnectTimer();
     setDriveEnabled(false);
+    micEnabled = false;
+    stopLocalMic();
     closeTransport({ sendSignalingClose: true });
     releaseRoomLease({ beacon: true });
   }
@@ -2195,7 +2396,11 @@
 
     const videoTransceiver = peer.addTransceiver('video', { direction: 'recvonly' });
     preferVideoCodec(videoTransceiver, getPreferredVideoCodec());
-    peer.addTransceiver('audio', { direction: 'recvonly' });
+    const audioTransceiver = peer.addTransceiver('audio', { direction: 'sendrecv' });
+    audioSender = audioTransceiver.sender;
+    attachMicTrackToSender().catch((error) => {
+      recordEvent('mic attach failed', error.message || String(error));
+    });
 
     return peer;
   }
@@ -2816,6 +3021,8 @@
   btnMirror.addEventListener('click', toggleVideoMirror);
   btnAudio.addEventListener('click', toggleAudio);
   btnAudioFilter?.addEventListener('click', toggleAudioFilter);
+  btnMic?.addEventListener('click', toggleMic);
+  micVolumeInput?.addEventListener('input', () => setMicVolume());
   btnDebug.addEventListener('click', toggleDebugOsd);
   modeSelect.addEventListener('change', () => setModeUiEnabled(isDebugOsdEnabled() && modeOptions.length > 0));
   btnApplyMode.addEventListener('click', applySelectedMode);
@@ -2834,6 +3041,11 @@
   window.addEventListener('keyup', onControlKeyUp);
   remoteVideo.addEventListener('loadedmetadata', updateUiState);
   remoteVideo.addEventListener('resize', updateUiState);
+  if (micVolumeInput) {
+    micVolumeInput.value = String(MIC_DEFAULT_VOLUME);
+  }
+  setMicVolume(MIC_DEFAULT_VOLUME);
+  updateMicUi();
 
   window.fpvViewer = {
     connect,
@@ -2844,6 +3056,7 @@
     setDebugOsd,
     setVideoFlip,
     setVideoMirror,
+    setMicEnabled,
     getDiagnostics: () => ({
       reconnectCount,
       lastReconnectAt,

@@ -431,6 +431,75 @@
       opacity: 1;
     }
 
+    .mic-control {
+      display: inline-grid;
+      grid-template-columns: auto auto;
+      grid-template-rows: auto auto;
+      grid-template-areas:
+        "button volume"
+        "meter volume";
+      gap: 4px 8px;
+      align-items: center;
+      margin-left: 6px;
+      vertical-align: middle;
+      opacity: 0.86;
+    }
+
+    .mic-control button {
+      grid-area: button;
+      min-width: 68px;
+      font-weight: 700;
+    }
+
+    .mic-control button[aria-pressed="true"] {
+      border-color: rgba(88, 255, 153, 0.9);
+      background: rgba(0, 126, 61, 0.86);
+      color: #ffffff;
+      opacity: 1;
+    }
+
+    .mic-meter {
+      grid-area: meter;
+      display: grid;
+      grid-template-columns: repeat(8, 4px);
+      gap: 3px;
+      height: 18px;
+      align-items: end;
+      padding: 2px 4px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 3px;
+      background: rgba(0, 0, 0, 0.24);
+    }
+
+    .mic-meter span {
+      display: block;
+      width: 4px;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.22);
+    }
+
+    .mic-meter span:nth-child(2n) {
+      height: 10px;
+    }
+
+    .mic-meter span:nth-child(3n) {
+      height: 14px;
+    }
+
+    .mic-meter[data-level="1"] span:nth-child(-n+2),
+    .mic-meter[data-level="2"] span:nth-child(-n+4),
+    .mic-meter[data-level="3"] span:nth-child(-n+6),
+    .mic-meter[data-level="4"] span:nth-child(-n+8) {
+      background: rgba(88, 255, 153, 0.9);
+      box-shadow: 0 0 4px rgba(88, 255, 153, 0.7);
+    }
+
+    .mic-volume {
+      grid-area: volume;
+      width: 92px;
+      min-height: 30px;
+    }
+
     .hidden-endpoint {
       display: none;
     }
@@ -486,6 +555,14 @@
       <button id="btnMirror" type="button">Mirror</button>
       <button id="btnAudio" type="button">Audio</button>
       <button id="btnAudioFilter" type="button">Filter</button>
+      <span class="mic-control" aria-label="Microphone to car speaker">
+        <button id="btnMic" type="button" aria-pressed="false">Mic</button>
+        <span id="micMeter" class="mic-meter" data-level="0" aria-hidden="true">
+          <span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span>
+        </span>
+        <input id="micVolume" class="mic-volume" type="range" min="0" max="200" step="1" value="100" aria-label="Microphone volume">
+      </span>
       <button id="btnDebug" type="button">Debug</button>
       <span class="debug-controls">
         <label>
@@ -567,7 +644,7 @@
     </div>
   </div>
 
-  <script src="./viewer.js?v=20260513-1"></script>
+  <script src="./viewer.js?v=20260515-mic"></script>
 </body>
 
 </html>
