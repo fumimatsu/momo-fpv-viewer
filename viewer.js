@@ -657,8 +657,9 @@
     setMicMeterLevel(0);
   }
 
-  function stopLocalMic() {
-    if (micStream) {
+  function stopLocalMic(options = {}) {
+    const stopInput = options.stopInput !== false;
+    if (stopInput && micStream) {
       for (const track of micStream.getTracks()) {
         try { track.stop(); } catch (_) {}
       }
@@ -672,7 +673,9 @@
     try { micToneGainNode?.disconnect(); } catch (_) {}
     try { micGainNode?.disconnect(); } catch (_) {}
     try { micAnalyserNode?.disconnect(); } catch (_) {}
-    micStream = null;
+    if (stopInput) {
+      micStream = null;
+    }
     micSourceNode = null;
     micToneNode = null;
     micToneGainNode = null;
@@ -748,24 +751,38 @@
     await audioSender.replaceTrack(nextTrack);
   }
 
-  async function ensureLocalMic() {
+  async function ensureLocalMic(options = {}) {
+    const forceOutputTrack = options.forceOutputTrack === true;
     micToneEnabled = false;
     const hasLiveInput = Boolean(
       micStream?.getAudioTracks().some((track) => track.readyState === 'live'),
     );
-    if (micOutputTrack && micOutputTrack.readyState === 'live' && hasLiveInput) {
+    if (!forceOutputTrack && micOutputTrack && micOutputTrack.readyState === 'live' && hasLiveInput) {
       micOutputTrack.enabled = true;
       await micAudioContext?.resume?.();
       setMicVolume();
       startMicMeter();
       return;
     }
-    stopLocalMic();
-    if (!canUseMicrophone()) {
-      throw new Error('microphone API unavailable');
-    }
-    if (!isMicrophoneOriginAllowed()) {
-      throw new Error('microphone requires HTTPS or localhost');
+    if (hasLiveInput) {
+      stopLocalMic({ stopInput: false });
+    } else {
+      stopLocalMic();
+      if (!canUseMicrophone()) {
+        throw new Error('microphone API unavailable');
+      }
+      if (!isMicrophoneOriginAllowed()) {
+        throw new Error('microphone requires HTTPS or localhost');
+      }
+
+      micStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: false,
+      });
     }
 
     const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
@@ -773,14 +790,6 @@
       throw new Error('AudioContext unavailable');
     }
 
-    micStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-      video: false,
-    });
     micAudioContext = micAudioContext || new AudioContextCtor();
     await micAudioContext.resume?.();
     micSourceNode = micAudioContext.createMediaStreamSource(micStream);
@@ -800,8 +809,9 @@
     startMicMeter();
   }
 
-  async function ensureMicTone() {
-    if (micOutputTrack && micOutputTrack.readyState === 'live' && micToneNode) {
+  async function ensureMicTone(options = {}) {
+    const forceOutputTrack = options.forceOutputTrack === true;
+    if (!forceOutputTrack && micOutputTrack && micOutputTrack.readyState === 'live' && micToneNode) {
       micOutputTrack.enabled = true;
       await micAudioContext?.resume?.();
       setMicVolume();
@@ -838,6 +848,19 @@
     micOutputTrack.enabled = true;
     setMicVolume();
     startMicMeter();
+  }
+
+  async function restoreMicTrackForNewPeer() {
+    if (!micEnabled) {
+      await attachMicTrackToSender();
+      return;
+    }
+    if (micToneEnabled) {
+      await ensureMicTone({ forceOutputTrack: true });
+    } else {
+      await ensureLocalMic({ forceOutputTrack: true });
+    }
+    await attachMicTrackToSender(micOutputTrack);
   }
 
   async function setMicEnabled(enabled) {
@@ -2682,7 +2705,7 @@
     preferVideoCodec(videoTransceiver, getPreferredVideoCodec());
     audioTransceiver = peer.addTransceiver('audio', { direction: 'sendrecv' });
     audioSender = audioTransceiver.sender;
-    await attachMicTrackToSender().catch((error) => {
+    await restoreMicTrackForNewPeer().catch((error) => {
       recordEvent('mic attach failed', error.message || String(error));
     });
     recordEvent('mic preattach', getMicDebugState());
