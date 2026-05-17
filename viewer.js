@@ -91,6 +91,7 @@
   const jitterState = document.getElementById('jitterState');
   const rttState = document.getElementById('rttState');
   const dcRttState = document.getElementById('dcRttState');
+  const micTxState = document.getElementById('micTxState');
   const latencyState = document.getElementById('latencyState');
   const dropState = document.getElementById('dropState');
   const uptimeState = document.getElementById('uptimeState');
@@ -171,6 +172,12 @@
   let lastTotalProcessingDelay = 0;
   let lastFramesDecoded = 0;
   let decodedFrameHistory = [];
+  let lastMicInputPeak = 0;
+  let lastMicTxSampleAt = 0;
+  let lastMicTxBytesSent = 0;
+  let lastMicTxPacketsSent = 0;
+  let lastMicTxReportId = '';
+  let lastMicTxStatus = 'n/a';
   let rcDriveEnabled = false;
   let currentGear = RC_INITIAL_GEAR;
   let rcTxTimer = null;
@@ -620,6 +627,7 @@
       for (const value of samples) {
         peak = Math.max(peak, Math.abs(value - 128));
       }
+      lastMicInputPeak = peak / 128;
       setMicMeterLevel(Math.min(4, Math.ceil((peak / 128) * 5)));
     }, MIC_METER_INTERVAL_MS);
   }
@@ -629,6 +637,7 @@
       window.clearInterval(micMeterTimer);
       micMeterTimer = null;
     }
+    lastMicInputPeak = 0;
     setMicMeterLevel(0);
   }
 
@@ -877,6 +886,7 @@
     setText(diagState, getDiagnosticStatus());
     setText(videoAgeState, getVideoAgeStatus());
     setText(dcRttState, getDcRttStatus());
+    setText(micTxState, lastMicTxStatus);
   }
 
   function updateRcUi() {
@@ -986,6 +996,73 @@
       return 'n/a';
     }
     return `${Math.max(0, performance.now() - lastMediaFrameAt).toFixed(0)}ms`;
+  }
+
+  function resetMicTxStats(status = 'n/a') {
+    lastMicTxSampleAt = 0;
+    lastMicTxBytesSent = 0;
+    lastMicTxPacketsSent = 0;
+    lastMicTxReportId = '';
+    lastMicTxStatus = status;
+    setText(micTxState, lastMicTxStatus);
+  }
+
+  function updateMicTxStats(stats, now) {
+    if (!audioSender) {
+      resetMicTxStats('no sender');
+      return;
+    }
+
+    let outboundAudio = null;
+    let audioSource = null;
+    stats.forEach((report) => {
+      if (report.type === 'outbound-rtp' && report.kind === 'audio') {
+        outboundAudio = report;
+      }
+    });
+    if (outboundAudio?.mediaSourceId) {
+      audioSource = stats.get(outboundAudio.mediaSourceId) || null;
+    }
+    if (!audioSource) {
+      stats.forEach((report) => {
+        if (!audioSource && report.type === 'media-source' && report.kind === 'audio') {
+          audioSource = report;
+        }
+      });
+    }
+
+    const trackState = getTrackDebugState(audioSender.track);
+    const direction = audioTransceiver?.currentDirection || audioTransceiver?.direction || 'none';
+    const inputPercent = Math.round(Math.max(0, Math.min(1, lastMicInputPeak)) * 100);
+    const sourceLevel = Number.isFinite(audioSource?.audioLevel) ? audioSource.audioLevel : null;
+    const sourceText = sourceLevel === null ? 'src n/a' : `src ${sourceLevel.toFixed(4)}`;
+
+    if (!outboundAudio) {
+      resetMicTxStats(`${trackState} ${direction} no rtp in${inputPercent}%`);
+      return;
+    }
+
+    const bytesSent = outboundAudio.bytesSent || 0;
+    const packetsSent = outboundAudio.packetsSent || 0;
+    if (lastMicTxReportId !== outboundAudio.id || lastMicTxSampleAt === 0) {
+      lastMicTxReportId = outboundAudio.id;
+      lastMicTxSampleAt = now;
+      lastMicTxBytesSent = bytesSent;
+      lastMicTxPacketsSent = packetsSent;
+      lastMicTxStatus = `${trackState} ${direction} tx -- ${sourceText} in${inputPercent}%`;
+      setText(micTxState, lastMicTxStatus);
+      return;
+    }
+
+    const elapsedSeconds = Math.max((now - lastMicTxSampleAt) / 1000, 0.001);
+    const txKbps = Math.max(0, ((bytesSent - lastMicTxBytesSent) * 8) / elapsedSeconds / 1000);
+    const txPps = Math.max(0, (packetsSent - lastMicTxPacketsSent) / elapsedSeconds);
+    lastMicTxStatus =
+      `${trackState} ${direction} tx ${txKbps.toFixed(0)}k ${txPps.toFixed(0)}pps ${sourceText} in${inputPercent}%`;
+    setText(micTxState, lastMicTxStatus);
+    lastMicTxSampleAt = now;
+    lastMicTxBytesSent = bytesSent;
+    lastMicTxPacketsSent = packetsSent;
   }
 
   function getTransportSummary() {
@@ -2612,12 +2689,15 @@
       setText(jitterState, '0ms');
       setText(rttState, 'n/a');
       setText(latencyState, 'n/a');
+      resetMicTxStats();
       updateDecodedFps(0);
       decodedFrameHistory = [];
       return;
     }
 
     const stats = await peerConnection.getStats();
+    const now = performance.now();
+    updateMicTxStats(stats, now);
     let inboundVideo = null;
     let selectedPair = null;
     stats.forEach((report) => {
@@ -2635,7 +2715,6 @@
       return;
     }
 
-    const now = performance.now();
     const bytesReceived = inboundVideo.bytesReceived || 0;
     const packetsReceived = inboundVideo.packetsReceived || 0;
     const packetsLost = inboundVideo.packetsLost || 0;
@@ -3169,6 +3248,8 @@
       },
       mic: {
         state: getMicDebugState(),
+        tx: lastMicTxStatus,
+        inputPeak: lastMicInputPeak,
         enabled: micEnabled,
         senderTrack: getTrackDebugState(audioSender?.track || null),
         outputTrack: getTrackDebugState(micOutputTrack),
