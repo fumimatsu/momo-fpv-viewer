@@ -433,11 +433,11 @@
 
     .mic-control {
       display: inline-grid;
-      grid-template-columns: auto auto;
+      grid-template-columns: auto auto auto;
       grid-template-rows: auto auto;
       grid-template-areas:
-        "button volume"
-        "meter volume";
+        "button tone volume"
+        "meter meter volume";
       gap: 4px 8px;
       align-items: center;
       margin-left: 6px;
@@ -445,9 +445,15 @@
       opacity: 0.86;
     }
 
-    .mic-control button {
+    #btnMic {
       grid-area: button;
       min-width: 68px;
+      font-weight: 700;
+    }
+
+    #btnMicTone {
+      grid-area: tone;
+      min-width: 60px;
       font-weight: 700;
     }
 
@@ -557,6 +563,7 @@
       <button id="btnAudioFilter" type="button">Filter</button>
       <span class="mic-control" aria-label="Microphone to car speaker">
         <button id="btnMic" type="button" aria-pressed="false">Mic</button>
+        <button id="btnMicTone" type="button" aria-pressed="false">Tone</button>
         <span id="micMeter" class="mic-meter" data-level="0" aria-hidden="true">
           <span></span><span></span><span></span><span></span>
           <span></span><span></span><span></span><span></span>
@@ -645,7 +652,7 @@
     </div>
   </div>
 
-  <script src="./viewer.js?v=20260518-mic-tx-stats"></script>
+  <script src="./viewer.js?v=20260518-mic-tone"></script>
 </body>
 
 </html>
