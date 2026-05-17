@@ -205,6 +205,7 @@
   let micDestinationNode = null;
   let micOutputTrack = null;
   let micMeterTimer = null;
+  let audioTransceiver = null;
   let silentAudioContext = null;
   let silentSourceNode = null;
   let silentGainNode = null;
@@ -788,6 +789,7 @@
       await attachMicTrackToSender(micOutputTrack);
       updateMicUi();
       recordEvent('mic on', getMicDebugState());
+      reconnectIfMicNeedsNegotiation();
     } catch (error) {
       micEnabled = false;
       stopLocalMic();
@@ -795,6 +797,22 @@
       updateMicUi(error.message || String(error));
       recordEvent('mic failed', error.message || String(error));
     }
+  }
+
+  function reconnectIfMicNeedsNegotiation() {
+    if (!micEnabled || !peerConnection || reconnectTimer) {
+      return;
+    }
+    const direction = audioTransceiver?.currentDirection || audioTransceiver?.direction || '';
+    if (direction.includes('send')) {
+      return;
+    }
+    recordEvent('mic renegotiate', `direction=${direction || 'none'} ${getMicDebugState()}`);
+    scheduleReconnect('mic negotiation', {
+      force: true,
+      baseDelayMs: 100,
+      maxDelayMs: 100,
+    });
   }
 
   function toggleMic() {
@@ -1987,6 +2005,7 @@
     }
     dataChannel = null;
     audioSender = null;
+    audioTransceiver = null;
     peerConnection = null;
     ws = null;
     candidates = [];
@@ -2469,7 +2488,7 @@
 
     const videoTransceiver = peer.addTransceiver('video', { direction: 'recvonly' });
     preferVideoCodec(videoTransceiver, getPreferredVideoCodec());
-    const audioTransceiver = peer.addTransceiver('audio', { direction: 'sendrecv' });
+    audioTransceiver = peer.addTransceiver('audio', { direction: 'sendrecv' });
     audioSender = audioTransceiver.sender;
     await attachMicTrackToSender().catch((error) => {
       recordEvent('mic attach failed', error.message || String(error));
