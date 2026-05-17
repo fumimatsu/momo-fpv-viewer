@@ -753,6 +753,7 @@
 
   async function ensureLocalMic(options = {}) {
     const forceOutputTrack = options.forceOutputTrack === true;
+    const forceInputStream = options.forceInputStream === true;
     micToneEnabled = false;
     const hasLiveInput = Boolean(
       micStream?.getAudioTracks().some((track) => track.readyState === 'live'),
@@ -764,7 +765,7 @@
       startMicMeter();
       return;
     }
-    if (hasLiveInput) {
+    if (hasLiveInput && !forceInputStream) {
       stopLocalMic({ stopInput: false });
     } else {
       stopLocalMic();
@@ -858,7 +859,7 @@
     if (micToneEnabled) {
       await ensureMicTone({ forceOutputTrack: true });
     } else {
-      await ensureLocalMic({ forceOutputTrack: true });
+      await ensureLocalMic({ forceInputStream: true, forceOutputTrack: true });
     }
     await attachMicTrackToSender(micOutputTrack);
   }
