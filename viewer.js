@@ -205,6 +205,11 @@
   let micDestinationNode = null;
   let micOutputTrack = null;
   let micMeterTimer = null;
+  let silentAudioContext = null;
+  let silentSourceNode = null;
+  let silentGainNode = null;
+  let silentDestinationNode = null;
+  let silentAudioTrack = null;
   let roomLease = null;
   let roomLockStatus = null;
   let roomLockBusy = false;
@@ -647,18 +652,82 @@
     stopMicMeter();
   }
 
-  async function attachMicTrackToSender() {
+  function getTrackDebugState(track) {
+    if (!track) {
+      return 'none';
+    }
+    return `${track.readyState}/${track.enabled ? 'on' : 'off'}`;
+  }
+
+  function getMicDebugState() {
+    const inputTracks = micStream ? micStream.getAudioTracks() : [];
+    const gainValue = micGainNode ? micGainNode.gain.value.toFixed(2) : 'none';
+    return [
+      `enabled=${micEnabled ? '1' : '0'}`,
+      `sender=${getTrackDebugState(audioSender?.track || null)}`,
+      `output=${getTrackDebugState(micOutputTrack)}`,
+      `silent=${getTrackDebugState(silentAudioTrack)}`,
+      `input=${inputTracks.map(getTrackDebugState).join(',') || 'none'}`,
+      `ctx=${micAudioContext?.state || 'none'}`,
+      `gain=${gainValue}`,
+    ].join(' ');
+  }
+
+  async function ensureSilentAudioTrack() {
+    if (silentAudioTrack && silentAudioTrack.readyState === 'live') {
+      return silentAudioTrack;
+    }
+
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) {
+      throw new Error('AudioContext unavailable');
+    }
+
+    silentAudioContext = silentAudioContext || new AudioContextCtor();
+    silentDestinationNode = silentAudioContext.createMediaStreamDestination();
+    silentGainNode = silentAudioContext.createGain();
+    silentGainNode.gain.value = 0;
+    if (typeof silentAudioContext.createConstantSource === 'function') {
+      silentSourceNode = silentAudioContext.createConstantSource();
+      silentSourceNode.offset.value = 0;
+    } else {
+      silentSourceNode = silentAudioContext.createOscillator();
+      silentSourceNode.frequency.value = 20;
+    }
+    silentSourceNode.connect(silentGainNode);
+    silentGainNode.connect(silentDestinationNode);
+    silentSourceNode.start();
+    silentAudioTrack = silentDestinationNode.stream.getAudioTracks()[0] || null;
+    if (!silentAudioTrack) {
+      throw new Error('silent audio track unavailable');
+    }
+    silentAudioTrack.enabled = true;
+    return silentAudioTrack;
+  }
+
+  async function attachMicTrackToSender(track = micEnabled ? micOutputTrack : null) {
     if (!audioSender) {
       return;
     }
-    await audioSender.replaceTrack(micEnabled ? micOutputTrack : null);
+    const nextTrack = track || await ensureSilentAudioTrack();
+    if (audioSender.track === nextTrack) {
+      return;
+    }
+    await audioSender.replaceTrack(nextTrack);
   }
 
   async function ensureLocalMic() {
-    if (micOutputTrack && micOutputTrack.readyState === 'live') {
+    const hasLiveInput = Boolean(
+      micStream?.getAudioTracks().some((track) => track.readyState === 'live'),
+    );
+    if (micOutputTrack && micOutputTrack.readyState === 'live' && hasLiveInput) {
+      micOutputTrack.enabled = true;
+      await micAudioContext?.resume?.();
       setMicVolume();
+      startMicMeter();
       return;
     }
+    stopLocalMic();
     if (!canUseMicrophone()) {
       throw new Error('microphone API unavailable');
     }
@@ -704,21 +773,25 @@
     }
     if (!enabled) {
       micEnabled = false;
-      await attachMicTrackToSender().catch(() => {});
+      await attachMicTrackToSender().catch((error) => {
+        recordEvent('mic mute failed', error.message || String(error));
+      });
       stopLocalMic();
       updateMicUi();
+      recordEvent('mic off', getMicDebugState());
       return;
     }
 
     try {
       await ensureLocalMic();
       micEnabled = true;
-      await attachMicTrackToSender();
+      await attachMicTrackToSender(micOutputTrack);
       updateMicUi();
-      recordEvent('mic on');
+      recordEvent('mic on', getMicDebugState());
     } catch (error) {
       micEnabled = false;
       stopLocalMic();
+      await attachMicTrackToSender().catch(() => {});
       updateMicUi(error.message || String(error));
       recordEvent('mic failed', error.message || String(error));
     }
@@ -3073,6 +3146,14 @@
         frequencies: AUDIO_FILTER_FREQS.slice(),
         q: AUDIO_FILTER_Q,
         contextState: audioContext?.state || 'none',
+      },
+      mic: {
+        state: getMicDebugState(),
+        enabled: micEnabled,
+        senderTrack: getTrackDebugState(audioSender?.track || null),
+        outputTrack: getTrackDebugState(micOutputTrack),
+        silentTrack: getTrackDebugState(silentAudioTrack),
+        audioContextState: micAudioContext?.state || 'none',
       },
       gamepad: {
         enabled: GAMEPAD_ENABLED,
