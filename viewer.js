@@ -2193,7 +2193,7 @@
   }
 
   async function setOfferAndAnswer(offer) {
-    peerConnection = createPeerConnection({ iceServers: ayameIceServers });
+    peerConnection = await createPeerConnection({ iceServers: ayameIceServers });
     updateUiState();
     try {
       await peerConnection.setRemoteDescription(offer);
@@ -2371,7 +2371,7 @@
     };
   }
 
-  function createPeerConnection(options = {}) {
+  async function createPeerConnection(options = {}) {
     candidates = [];
     hasReceivedSdp = false;
 
@@ -2471,9 +2471,10 @@
     preferVideoCodec(videoTransceiver, getPreferredVideoCodec());
     const audioTransceiver = peer.addTransceiver('audio', { direction: 'sendrecv' });
     audioSender = audioTransceiver.sender;
-    attachMicTrackToSender().catch((error) => {
+    await attachMicTrackToSender().catch((error) => {
       recordEvent('mic attach failed', error.message || String(error));
     });
+    recordEvent('mic preattach', getMicDebugState());
 
     return peer;
   }
@@ -2518,7 +2519,7 @@
   }
 
   async function makeOffer(options = {}) {
-    peerConnection = createPeerConnection(options);
+    peerConnection = await createPeerConnection(options);
     updateUiState();
     try {
       const offer = await peerConnection.createOffer();
