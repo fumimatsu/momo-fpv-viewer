@@ -744,7 +744,7 @@
     if (!audioSender) {
       return;
     }
-    const nextTrack = track || await ensureSilentAudioTrack();
+    const nextTrack = track || null;
     if (audioSender.track === nextTrack) {
       return;
     }
