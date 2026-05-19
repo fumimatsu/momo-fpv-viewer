@@ -307,6 +307,13 @@
       opacity: 0.46;
     }
 
+    button[aria-pressed="true"] {
+      border-color: rgba(88, 255, 153, 0.9);
+      background: rgba(0, 126, 61, 0.86);
+      color: #ffffff;
+      opacity: 1;
+    }
+
     #btnDrive {
       min-width: 104px;
       min-height: 38px;
@@ -394,16 +401,64 @@
       border: 0;
       border-radius: 0;
       background: transparent;
-      opacity: 0.36;
       text-shadow: 0 0 2px #000000;
       pointer-events: auto;
     }
 
+    .top-primary,
+    .top-secondary {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .top-primary {
+      margin-bottom: 8px;
+      opacity: 0.96;
+    }
+
+    .top-secondary {
+      opacity: 0.34;
+    }
+
     .top-controls:hover,
+    .top-controls:hover .top-secondary,
     .panel:hover .rc-axis,
     .panel:hover input,
     .panel:hover button {
       opacity: 1;
+    }
+
+    .media-control {
+      display: inline-flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 8px;
+      padding: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.28);
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.42);
+      box-shadow:
+        0 0 10px rgba(0, 0, 0, 0.52),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+      backdrop-filter: blur(2px);
+    }
+
+    #btnAudio,
+    #btnMic {
+      min-width: 86px;
+      min-height: 38px;
+      border-width: 2px;
+      font-weight: 800;
+      opacity: 0.9;
+      background: rgba(122, 32, 38, 0.72);
+      border-color: rgba(255, 92, 92, 0.78);
+      color: #ffffff;
+      text-shadow: 0 0 2px #000000;
+      box-shadow: 0 0 5px rgba(0, 0, 0, 0.72);
     }
 
     .debug-controls {
@@ -440,28 +495,18 @@
         "meter meter volume";
       gap: 4px 8px;
       align-items: center;
-      margin-left: 6px;
       vertical-align: middle;
-      opacity: 0.86;
+      opacity: 1;
     }
 
     #btnMic {
       grid-area: button;
-      min-width: 68px;
-      font-weight: 700;
     }
 
     #btnMicTone {
       grid-area: tone;
       min-width: 60px;
       font-weight: 700;
-    }
-
-    .mic-control button[aria-pressed="true"] {
-      border-color: rgba(88, 255, 153, 0.9);
-      background: rgba(0, 126, 61, 0.86);
-      color: #ffffff;
-      opacity: 1;
     }
 
     .mic-meter {
@@ -546,6 +591,31 @@
         width: 56px;
         height: 220px;
       }
+
+      .top {
+        top: calc(10px + env(safe-area-inset-top));
+        right: calc(10px + env(safe-area-inset-right));
+      }
+
+      .top-controls {
+        max-width: min(360px, calc(100vw - 20px));
+      }
+
+      .media-control {
+        gap: 6px;
+        padding: 5px;
+      }
+
+      #btnAudio,
+      #btnMic {
+        min-width: 78px;
+        min-height: 36px;
+        padding: 0 9px;
+      }
+
+      .mic-volume {
+        width: 80px;
+      }
     }
   </style>
 </head>
@@ -556,33 +626,39 @@
   <div class="top">
     <div class="top-controls">
       <input id="endpoint" class="hidden-endpoint" type="text" autocomplete="off" spellcheck="false">
-      <button id="btnFullscreen" type="button">Fullscreen</button>
-      <button id="btnFlip" type="button">Flip</button>
-      <button id="btnMirror" type="button">Mirror</button>
-      <button id="btnAudio" type="button">Audio</button>
-      <button id="btnAudioFilter" type="button">Filter</button>
-      <span class="mic-control" aria-label="Microphone to car speaker">
-        <button id="btnMic" type="button" aria-pressed="false">Mic</button>
-        <button id="btnMicTone" type="button" aria-pressed="false">Tone</button>
-        <span id="micMeter" class="mic-meter" data-level="0" aria-hidden="true">
-          <span></span><span></span><span></span><span></span>
-          <span></span><span></span><span></span><span></span>
+      <div class="top-primary">
+        <span class="media-control" aria-label="Audio controls">
+          <button id="btnAudio" type="button" aria-pressed="false">Audio</button>
+          <span class="mic-control" aria-label="Microphone to car speaker">
+            <button id="btnMic" type="button" aria-pressed="false">Mic</button>
+            <button id="btnMicTone" type="button" aria-pressed="false">Tone</button>
+            <span id="micMeter" class="mic-meter" data-level="0" aria-hidden="true">
+              <span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span>
+            </span>
+            <input id="micVolume" class="mic-volume" type="range" min="0" max="200" step="1" value="100" aria-label="Microphone volume">
+          </span>
         </span>
-        <input id="micVolume" class="mic-volume" type="range" min="0" max="200" step="1" value="100" aria-label="Microphone volume">
-      </span>
-      <button id="btnDebug" type="button">Debug</button>
-      <span class="debug-controls">
-        <label>
-          Mode
-          <select id="modeSelect" disabled>
-            <option value="">refresh</option>
-          </select>
-        </label>
-        <button id="btnApplyMode" type="button" disabled>Apply</button>
-        <button id="btnRefreshMode" type="button">Refresh Mode</button>
-        <button id="btnRefreshDevice" type="button">Refresh Device</button>
-        <button id="btnInputSetup" type="button">Input</button>
-      </span>
+      </div>
+      <div class="top-secondary">
+        <button id="btnFullscreen" type="button">Fullscreen</button>
+        <button id="btnFlip" type="button">Flip</button>
+        <button id="btnMirror" type="button">Mirror</button>
+        <button id="btnAudioFilter" type="button">Filter</button>
+        <button id="btnDebug" type="button">Debug</button>
+        <span class="debug-controls">
+          <label>
+            Mode
+            <select id="modeSelect" disabled>
+              <option value="">refresh</option>
+            </select>
+          </label>
+          <button id="btnApplyMode" type="button" disabled>Apply</button>
+          <button id="btnRefreshMode" type="button">Refresh Mode</button>
+          <button id="btnRefreshDevice" type="button">Refresh Device</button>
+          <button id="btnInputSetup" type="button">Input</button>
+        </span>
+      </div>
     </div>
   </div>
 
@@ -652,7 +728,7 @@
     </div>
   </div>
 
-  <script src="./viewer.js?v=20260518-mic-null-off"></script>
+  <script src="./viewer.js?v=20260519-audio-mic-controls"></script>
 </body>
 
 </html>
