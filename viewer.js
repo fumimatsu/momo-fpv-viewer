@@ -30,12 +30,28 @@
   const GAMEPAD_INDEX = getNumberParamWithProfile('gamepadIndex', 'index', 0, true);
   const GAMEPAD_STEERING_AXIS = getNumberParamWithProfile('gamepadSteeringAxis', 'steeringAxis', 0, true);
   const GAMEPAD_STEERING_INVERT = getBooleanParamWithProfile('gamepadSteeringInvert', 'steeringInvert', false);
-  const GAMEPAD_STEERING_GAIN = getNumberParamWithProfile('gamepadSteeringGain', 'steeringGain', 3.75);
   const GAMEPAD_STEERING_DEADZONE = getNumberParamWithProfile('gamepadSteeringDeadzone', 'steeringDeadzone', 0.03);
+  const GAMEPAD_STEERING_CENTER = getNumberParamWithProfile('gamepadSteeringCenter', 'steeringCenter', 0);
+  const GAMEPAD_STEERING_LEFT = getNumberParamWithProfile('gamepadSteeringLeft', 'steeringLeft', -1);
+  const GAMEPAD_STEERING_RIGHT = getNumberParamWithProfile('gamepadSteeringRight', 'steeringRight', 1);
+  const GAMEPAD_STEERING_CALIBRATED =
+    hasNumberParamWithProfile('gamepadSteeringCenter', 'steeringCenter') &&
+    hasNumberParamWithProfile('gamepadSteeringLeft', 'steeringLeft') &&
+    hasNumberParamWithProfile('gamepadSteeringRight', 'steeringRight');
+  const GAMEPAD_STEERING_GAIN = getEffectiveSteeringGain(
+    getNumberParamWithProfile('gamepadSteeringGain', 'steeringGain', GAMEPAD_STEERING_CALIBRATED ? 1.0 : 3.75),
+    GAMEPAD_STEERING_CALIBRATED,
+  );
   const GAMEPAD_THROTTLE_AXIS = getNumberParamWithProfile('gamepadThrottleAxis', 'throttleAxis', 5, true);
   const GAMEPAD_THROTTLE_INVERT = getBooleanParamWithProfile('gamepadThrottleInvert', 'throttleInvert', false);
+  const GAMEPAD_THROTTLE_IDLE = getNumberParamWithProfile('gamepadThrottleIdle', 'throttleIdle', 1);
+  const GAMEPAD_THROTTLE_PRESSED = getNumberParamWithProfile('gamepadThrottlePressed', 'throttlePressed', -1);
+  const GAMEPAD_THROTTLE_IDLE_CONFIGURED = hasNumberParamWithProfile('gamepadThrottleIdle', 'throttleIdle');
   const GAMEPAD_BRAKE_AXIS = getNumberParamWithProfile('gamepadBrakeAxis', 'brakeAxis', 6, true);
   const GAMEPAD_BRAKE_INVERT = getBooleanParamWithProfile('gamepadBrakeInvert', 'brakeInvert', false);
+  const GAMEPAD_BRAKE_IDLE = getNumberParamWithProfile('gamepadBrakeIdle', 'brakeIdle', 1);
+  const GAMEPAD_BRAKE_PRESSED = getNumberParamWithProfile('gamepadBrakePressed', 'brakePressed', -1);
+  const GAMEPAD_BRAKE_IDLE_CONFIGURED = hasNumberParamWithProfile('gamepadBrakeIdle', 'brakeIdle');
   const GAMEPAD_PEDAL_DEADZONE = getNumberParamWithProfile('gamepadPedalDeadzone', 'pedalDeadzone', 0.05);
   const GAMEPAD_DRIVE_BUTTON = getNumberParamWithProfile('gamepadDriveButton', 'driveButton', 8, true);
   const GAMEPAD_DRIVE_BUTTON_ENABLED = getBooleanParam('gamepadDriveButtonEnabled', true);
@@ -67,6 +83,7 @@
   const AUDIO_OPUS_STEREO = getOptionalBooleanParam('audioOpusStereo');
   const AUDIO_OPUS_DTX = getOptionalBooleanParam('audioOpusDtx');
   const AUDIO_OPUS_FEC = getOptionalBooleanParam('audioOpusFec');
+  const MEDIA_CONTROLS_VISIBLE = getBooleanParam('mediaControls', !location.pathname.includes('local-mic-ui'));
   const MIC_DEFAULT_VOLUME = Math.max(0, Math.min(200, getNumberParamAllowZero('micVolume', 100)));
   const MIC_METER_INTERVAL_MS = 100;
   const ROOM_LOCK_ENABLED = getBooleanParam('roomLock', SIGNALING_MODE === 'ayame');
@@ -233,8 +250,8 @@
   let roomLockHeartbeatTimer = null;
   let roomLockHeartbeatFailures = 0;
   const gamepadPedalIdle = {
-    throttle: 1,
-    brake: 1,
+    throttle: GAMEPAD_THROTTLE_IDLE,
+    brake: GAMEPAD_BRAKE_IDLE,
   };
 
   function getUrlParams() {
@@ -282,6 +299,14 @@
     return defaultValue;
   }
 
+  function hasNumberParamWithProfile(paramName, profileName) {
+    const params = getUrlParams();
+    if (params.has(paramName)) {
+      return Number.isFinite(Number(params.get(paramName)));
+    }
+    return Number.isFinite(GAMEPAD_PROFILE[profileName]);
+  }
+
   function getBooleanParamWithProfile(paramName, profileName, defaultValue) {
     const params = getUrlParams();
     const raw = params.get(paramName);
@@ -293,6 +318,16 @@
       return profileValue;
     }
     return defaultValue;
+  }
+
+  function getEffectiveSteeringGain(rawGain, calibrated) {
+    if (!calibrated) {
+      return rawGain;
+    }
+    if (Math.abs(rawGain - 4.0) < 0.001 || Math.abs(rawGain - 3.75) < 0.001) {
+      return 1.0;
+    }
+    return rawGain;
   }
 
   function getInitialHost() {
@@ -362,6 +397,21 @@
       return Math.trunc(kbps * 1000);
     }
     return 0;
+  }
+
+  function setElementHidden(element, hidden) {
+    if (!element) {
+      return;
+    }
+    element.hidden = hidden;
+    element.style.display = hidden ? 'none' : '';
+  }
+
+  function applyMediaControlsVisibility() {
+    const hidden = !MEDIA_CONTROLS_VISIBLE;
+    setElementHidden(btnAudio?.closest('.media-control') || btnAudio, hidden);
+    setElementHidden(btnAudioFilter, hidden);
+    setElementHidden(micTxState?.closest('.debug-only'), hidden);
   }
 
   function getStringParam(names, defaultValue = '') {
@@ -1832,10 +1882,10 @@
     if (!gamepad) {
       return;
     }
-    if (GAMEPAD_THROTTLE_AXIS >= 0) {
+    if (GAMEPAD_THROTTLE_AXIS >= 0 && !GAMEPAD_THROTTLE_IDLE_CONFIGURED) {
       gamepadPedalIdle.throttle = getGamepadAxis(gamepad, GAMEPAD_THROTTLE_AXIS, gamepadPedalIdle.throttle);
     }
-    if (GAMEPAD_BRAKE_AXIS >= 0) {
+    if (GAMEPAD_BRAKE_AXIS >= 0 && !GAMEPAD_BRAKE_IDLE_CONFIGURED) {
       gamepadPedalIdle.brake = getGamepadAxis(gamepad, GAMEPAD_BRAKE_AXIS, gamepadPedalIdle.brake);
     }
     recordEvent(
@@ -1844,13 +1894,30 @@
     );
   }
 
-  function normalizePedalAxis(value, invert, idleValue) {
+  function normalizePedalAxis(value, invert, idleValue, pressedValue) {
     const raw = invert ? -value : value;
     const idle = invert ? -idleValue : idleValue;
-    const normalized = idle >= 0
-      ? (idle - raw) / Math.max(0.001, idle + 1)
-      : (raw - idle) / Math.max(0.001, 1 - idle);
+    const defaultPressed = idleValue >= 0 ? -1 : 1;
+    const pressed = invert ? -pressedValue : pressedValue;
+    const fallbackPressed = invert ? -defaultPressed : defaultPressed;
+    const span = Math.abs(pressed - idle) >= 0.001
+      ? pressed - idle
+      : fallbackPressed - idle;
+    const normalized = (raw - idle) / (Math.abs(span) >= 0.001 ? span : 1);
     return applyDeadzone(Math.max(0, Math.min(1, normalized)), GAMEPAD_PEDAL_DEADZONE);
+  }
+
+  function normalizeSteeringAxis(value) {
+    const raw = GAMEPAD_STEERING_INVERT ? -value : value;
+    const center = GAMEPAD_STEERING_INVERT ? -GAMEPAD_STEERING_CENTER : GAMEPAD_STEERING_CENTER;
+    const left = GAMEPAD_STEERING_INVERT ? -GAMEPAD_STEERING_RIGHT : GAMEPAD_STEERING_LEFT;
+    const right = GAMEPAD_STEERING_INVERT ? -GAMEPAD_STEERING_LEFT : GAMEPAD_STEERING_RIGHT;
+    const leftSpan = Math.max(0.001, Math.abs(center - left));
+    const rightSpan = Math.max(0.001, Math.abs(right - center));
+    const normalized = raw < center
+      ? -Math.min(1, Math.abs(raw - center) / leftSpan)
+      : Math.min(1, Math.abs(raw - center) / rightSpan);
+    return Math.max(-1, Math.min(1, applyDeadzone(normalized, GAMEPAD_STEERING_DEADZONE) * GAMEPAD_STEERING_GAIN));
   }
 
   function formatGamepadStatus(gamepad, steering, throttle, brake) {
@@ -1860,28 +1927,28 @@
 
   function applyGamepadCommand(gamepad) {
     const rawSteering = getGamepadAxis(gamepad, GAMEPAD_STEERING_AXIS);
-    const steeringDirection = GAMEPAD_STEERING_INVERT ? -1 : 1;
-    const steering =
-      Math.max(-1, Math.min(1, applyDeadzone(rawSteering, GAMEPAD_STEERING_DEADZONE) * GAMEPAD_STEERING_GAIN * steeringDirection));
+    const steering = normalizeSteeringAxis(rawSteering);
     const throttle = GAMEPAD_THROTTLE_AXIS >= 0
       ? normalizePedalAxis(
         getGamepadAxis(gamepad, GAMEPAD_THROTTLE_AXIS, gamepadPedalIdle.throttle),
         GAMEPAD_THROTTLE_INVERT,
-        gamepadPedalIdle.throttle
+        gamepadPedalIdle.throttle,
+        GAMEPAD_THROTTLE_PRESSED
       )
       : 0;
     const brake = GAMEPAD_BRAKE_AXIS >= 0
       ? normalizePedalAxis(
         getGamepadAxis(gamepad, GAMEPAD_BRAKE_AXIS, gamepadPedalIdle.brake),
         GAMEPAD_BRAKE_INVERT,
-        gamepadPedalIdle.brake
+        gamepadPedalIdle.brake,
+        GAMEPAD_BRAKE_PRESSED
       )
       : 0;
 
-    const steeringPwm = 1500 + steering * 500;
+    const steeringPwm = 1500 + steering * RC_STEERING_THROW;
     const throttlePwm = brake > 0
-      ? 1500 - brake * (1500 - RC_THROTTLE_MIN)
-      : 1500 + throttle * 500;
+      ? 1500 - brake * (1500 - getThrottleGearMin())
+      : 1500 + throttle * (getThrottleGearMax() - 1500);
 
     cancelThrottleBrake();
     setRcInputs(steeringPwm, throttlePwm);
@@ -3476,11 +3543,14 @@
   });
   btnFlip.addEventListener('click', toggleVideoFlip);
   btnMirror.addEventListener('click', toggleVideoMirror);
-  btnAudio.addEventListener('click', toggleAudio);
-  btnAudioFilter?.addEventListener('click', toggleAudioFilter);
-  btnMic?.addEventListener('click', toggleMic);
-  btnMicTone?.addEventListener('click', toggleMicTone);
-  micVolumeInput?.addEventListener('input', () => setMicVolume());
+  applyMediaControlsVisibility();
+  if (MEDIA_CONTROLS_VISIBLE) {
+    btnAudio.addEventListener('click', toggleAudio);
+    btnAudioFilter?.addEventListener('click', toggleAudioFilter);
+    btnMic?.addEventListener('click', toggleMic);
+    btnMicTone?.addEventListener('click', toggleMicTone);
+    micVolumeInput?.addEventListener('input', () => setMicVolume());
+  }
   btnDebug.addEventListener('click', toggleDebugOsd);
   modeSelect.addEventListener('change', () => setModeUiEnabled(isDebugOsdEnabled() && modeOptions.length > 0));
   btnApplyMode.addEventListener('click', applySelectedMode);

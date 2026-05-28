@@ -154,14 +154,21 @@ const mapping = {
   index: 0,
   steeringAxis: null,
   steeringInvert: false,
-  steeringGain: 4.0,
+  steeringGain: 1.0,
   steeringDeadzone: 0.03,
+  steeringCenter: 0,
+  steeringLeft: -1,
+  steeringRight: 1,
   throttleAxis: null,
   throttleInvert: false,
+  throttleIdle: 1,
+  throttlePressed: -1,
   throttleMin: 1500,
   throttleMax: 2000,
   brakeAxis: null,
   brakeInvert: false,
+  brakeIdle: 1,
+  brakePressed: -1,
   pedalDeadzone: 0.05,
   reverseMin: 1300,
   driveButton: null,
@@ -230,8 +237,26 @@ function loadSavedMapping() {
       return;
     }
     Object.assign(mapping, saved);
+    migrateSavedMapping();
   } catch (error) {
     console.warn("load saved mapping failed", error);
+  }
+}
+
+function hasSteeringCalibration(value = mapping) {
+  return Number.isFinite(value.steeringCenter)
+    && Number.isFinite(value.steeringLeft)
+    && Number.isFinite(value.steeringRight)
+    && Math.abs(value.steeringLeft - value.steeringRight) >= 0.001;
+}
+
+function isLegacySteeringGain(value) {
+  return Math.abs(Number(value) - 4.0) < 0.001 || Math.abs(Number(value) - 3.75) < 0.001;
+}
+
+function migrateSavedMapping() {
+  if (hasSteeringCalibration() && isLegacySteeringGain(mapping.steeringGain)) {
+    mapping.steeringGain = 1.0;
   }
 }
 
@@ -244,7 +269,7 @@ function syncOptionsFromMapping() {
   optionInputs.steeringInvert.checked = Boolean(mapping.steeringInvert);
   optionInputs.throttleInvert.checked = Boolean(mapping.throttleInvert);
   optionInputs.brakeInvert.checked = Boolean(mapping.brakeInvert);
-  optionInputs.steeringGain.value = String(mapping.steeringGain ?? 4.0);
+  optionInputs.steeringGain.value = String(mapping.steeringGain ?? 1.0);
   optionInputs.steeringDeadzone.value = String(mapping.steeringDeadzone ?? 0.03);
   optionInputs.pedalDeadzone.value = String(mapping.pedalDeadzone ?? 0.05);
 }
@@ -253,39 +278,49 @@ function syncMappingFromOptions() {
   mapping.steeringInvert = Boolean(optionInputs.steeringInvert.checked);
   mapping.throttleInvert = Boolean(optionInputs.throttleInvert.checked);
   mapping.brakeInvert = Boolean(optionInputs.brakeInvert.checked);
-  mapping.steeringGain = numberFromInput(optionInputs.steeringGain, 4.0);
+  mapping.steeringGain = numberFromInput(optionInputs.steeringGain, 1.0);
   mapping.steeringDeadzone = numberFromInput(optionInputs.steeringDeadzone, 0.03);
   mapping.pedalDeadzone = numberFromInput(optionInputs.pedalDeadzone, 0.05);
 }
 
 function buildViewerUrl() {
   const url = new URL(openViewerEl?.getAttribute("href") || "./viewer.html", location.href);
-  url.searchParams.set("gamepad", "1");
-  url.searchParams.set("gamepadIndex", String(mapping.index ?? 0));
+  const params = new URLSearchParams(url.hash.replace(/^#\??/, ""));
+  params.set("gamepad", "1");
+  params.set("gamepadIndex", String(mapping.index ?? 0));
   if (mapping.steeringAxis !== null) {
-    url.searchParams.set("gamepadSteeringAxis", String(mapping.steeringAxis));
+    params.set("gamepadSteeringAxis", String(mapping.steeringAxis));
   }
-  url.searchParams.set("gamepadSteeringInvert", mapping.steeringInvert ? "1" : "0");
-  url.searchParams.set("gamepadSteeringGain", String(mapping.steeringGain ?? 4.0));
-  url.searchParams.set("gamepadSteeringDeadzone", String(mapping.steeringDeadzone ?? 0.03));
+  params.set("gamepadSteeringInvert", mapping.steeringInvert ? "1" : "0");
+  params.set("gamepadSteeringGain", String(mapping.steeringGain ?? 1.0));
+  params.set("gamepadSteeringDeadzone", String(mapping.steeringDeadzone ?? 0.03));
+  params.set("gamepadSteeringCenter", String(mapping.steeringCenter ?? 0));
+  params.set("gamepadSteeringLeft", String(mapping.steeringLeft ?? -1));
+  params.set("gamepadSteeringRight", String(mapping.steeringRight ?? 1));
   if (mapping.throttleAxis !== null) {
-    url.searchParams.set("gamepadThrottleAxis", String(mapping.throttleAxis));
+    params.set("gamepadThrottleAxis", String(mapping.throttleAxis));
   }
-  url.searchParams.set("gamepadThrottleInvert", mapping.throttleInvert ? "1" : "0");
+  params.set("gamepadThrottleInvert", mapping.throttleInvert ? "1" : "0");
+  params.set("gamepadThrottleIdle", String(mapping.throttleIdle ?? 1));
+  params.set("gamepadThrottlePressed", String(mapping.throttlePressed ?? -1));
   if (mapping.brakeAxis !== null) {
-    url.searchParams.set("gamepadBrakeAxis", String(mapping.brakeAxis));
+    params.set("gamepadBrakeAxis", String(mapping.brakeAxis));
   }
-  url.searchParams.set("gamepadBrakeInvert", mapping.brakeInvert ? "1" : "0");
-  url.searchParams.set("gamepadPedalDeadzone", String(mapping.pedalDeadzone ?? 0.05));
+  params.set("gamepadBrakeInvert", mapping.brakeInvert ? "1" : "0");
+  params.set("gamepadBrakeIdle", String(mapping.brakeIdle ?? 1));
+  params.set("gamepadBrakePressed", String(mapping.brakePressed ?? -1));
+  params.set("gamepadPedalDeadzone", String(mapping.pedalDeadzone ?? 0.05));
   if (mapping.driveButton !== null) {
-    url.searchParams.set("gamepadDriveButton", String(mapping.driveButton));
+    params.set("gamepadDriveButton", String(mapping.driveButton));
   }
   if (mapping.paddleLeftButton !== null) {
-    url.searchParams.set("gamepadPaddleLeftButton", String(mapping.paddleLeftButton));
+    params.set("gamepadPaddleLeftButton", String(mapping.paddleLeftButton));
   }
   if (mapping.paddleRightButton !== null) {
-    url.searchParams.set("gamepadPaddleRightButton", String(mapping.paddleRightButton));
+    params.set("gamepadPaddleRightButton", String(mapping.paddleRightButton));
   }
+  url.search = "";
+  url.hash = params.toString();
   return url.toString();
 }
 
@@ -524,6 +559,68 @@ function resetCalibration() {
   states.clear();
 }
 
+function getSelectedGamepad() {
+  const gamepads = navigator.getGamepads ? Array.from(navigator.getGamepads()).filter(Boolean) : [];
+  if (selectedGamepadIndex !== null) {
+    const selected = gamepads.find((gamepad) => gamepad.index === selectedGamepadIndex);
+    if (selected) {
+      return selected;
+    }
+  }
+  return gamepads[0] || null;
+}
+
+function getAxisValue(gamepad, axis) {
+  if (!gamepad || axis === null || axis === undefined || axis < 0 || axis >= gamepad.axes.length) {
+    return null;
+  }
+  const value = Number(gamepad.axes[axis]);
+  return Number.isFinite(value) ? Number(value.toFixed(6)) : null;
+}
+
+function setCapturedBoundary(label, gamepad) {
+  const steering = getAxisValue(gamepad, mapping.steeringAxis);
+  const throttle = getAxisValue(gamepad, mapping.throttleAxis);
+  const brake = getAxisValue(gamepad, mapping.brakeAxis);
+  const updated = [];
+
+  if (label === "idle") {
+    if (steering !== null) {
+      mapping.steeringCenter = steering;
+      updated.push(`steering center=${steering.toFixed(3)}`);
+    }
+    if (throttle !== null) {
+      mapping.throttleIdle = throttle;
+      updated.push(`throttle idle=${throttle.toFixed(3)}`);
+    }
+    if (brake !== null) {
+      mapping.brakeIdle = brake;
+      updated.push(`brake idle=${brake.toFixed(3)}`);
+    }
+  } else if (label === "steering_left" && steering !== null) {
+    mapping.steeringLeft = steering;
+    updated.push(`steering left=${steering.toFixed(3)}`);
+  } else if (label === "steering_right" && steering !== null) {
+    mapping.steeringRight = steering;
+    updated.push(`steering right=${steering.toFixed(3)}`);
+  } else if (label === "throttle_released" && throttle !== null) {
+    mapping.throttleIdle = throttle;
+    updated.push(`throttle idle=${throttle.toFixed(3)}`);
+  } else if (label === "throttle_pressed" && throttle !== null) {
+    mapping.throttlePressed = throttle;
+    updated.push(`throttle pressed=${throttle.toFixed(3)}`);
+  } else if (label === "brake_released" && brake !== null) {
+    mapping.brakeIdle = brake;
+    updated.push(`brake idle=${brake.toFixed(3)}`);
+  } else if (label === "brake_pressed" && brake !== null) {
+    mapping.brakePressed = brake;
+    updated.push(`brake pressed=${brake.toFixed(3)}`);
+  }
+
+  updateMappingOutput();
+  return updated;
+}
+
 function getCaptureUrl() {
   const params = new URLSearchParams(location.search);
   return params.get("captureUrl") || "http://127.0.0.1:18084/capture";
@@ -550,8 +647,14 @@ function snapshotGamepads(label) {
 }
 
 async function captureGamepad(label, button) {
+  const gamepad = getSelectedGamepad();
   const payload = snapshotGamepads(label);
-  if (payload.pads.length === 0) {
+  if (!gamepad || payload.pads.length === 0) {
+    assignStatusEl.textContent = `${t("captureFailed")}: ${label}`;
+    return;
+  }
+  const updated = setCapturedBoundary(label, gamepad);
+  if (updated.length === 0) {
     assignStatusEl.textContent = `${t("captureFailed")}: ${label}`;
     return;
   }
@@ -561,16 +664,15 @@ async function captureGamepad(label, button) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
-    assignStatusEl.textContent = `${t("captured")} ${label}`;
-    if (button) {
-      button.textContent = `${t("captured")} ${label}`;
-      setTimeout(() => {
-        button.textContent = t(button.dataset.i18n) || button.dataset.originalText || button.textContent;
-      }, 900);
-    }
   } catch (error) {
-    console.error("capture failed", error);
-    assignStatusEl.textContent = `${t("captureFailed")}: ${label}`;
+    console.warn("capture server unavailable; saved locally", error);
+  }
+  assignStatusEl.textContent = `${t("captured")} ${label}: ${updated.join(", ")}`;
+  if (button) {
+    button.textContent = `${t("captured")} ${label}`;
+    setTimeout(() => {
+      button.textContent = t(button.dataset.i18n) || button.dataset.originalText || button.textContent;
+    }, 900);
   }
 }
 
