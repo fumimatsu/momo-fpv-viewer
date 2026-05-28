@@ -63,6 +63,10 @@
   const AUDIO_FILTER_FREQS = getStringListParam(['audioFilterFreqs'], ['50', '100', '150'])
     .map((value) => Number(value))
     .filter((value) => Number.isFinite(value) && value > 0);
+  const AUDIO_OPUS_MAX_BITRATE_BPS = getAudioOpusMaxBitrateBps();
+  const AUDIO_OPUS_STEREO = getOptionalBooleanParam('audioOpusStereo');
+  const AUDIO_OPUS_DTX = getOptionalBooleanParam('audioOpusDtx');
+  const AUDIO_OPUS_FEC = getOptionalBooleanParam('audioOpusFec');
   const MIC_DEFAULT_VOLUME = Math.max(0, Math.min(200, getNumberParamAllowZero('micVolume', 100)));
   const MIC_METER_INTERVAL_MS = 100;
   const ROOM_LOCK_ENABLED = getBooleanParam('roomLock', SIGNALING_MODE === 'ayame');
@@ -336,6 +340,28 @@
       return defaultValue;
     }
     return value !== '0' && value !== 'false';
+  }
+
+  function getOptionalBooleanParam(name) {
+    const params = getUrlParams();
+    const value = params.get(name);
+    if (value === null) {
+      return null;
+    }
+    return value !== '0' && value !== 'false';
+  }
+
+  function getAudioOpusMaxBitrateBps() {
+    const params = getUrlParams();
+    const bps = Number(params.get('audioOpusMaxBitrate'));
+    if (Number.isFinite(bps) && bps > 0) {
+      return Math.trunc(bps);
+    }
+    const kbps = Number(params.get('audioOpusMaxKbps'));
+    if (Number.isFinite(kbps) && kbps > 0) {
+      return Math.trunc(kbps * 1000);
+    }
+    return 0;
   }
 
   function getStringParam(names, defaultValue = '') {
@@ -2427,6 +2453,126 @@
     }));
   }
 
+  function applyAudioOpusSdpConstraints(description) {
+    if (!description || !description.sdp || !hasAudioOpusSdpConstraints()) {
+      return description;
+    }
+    const sdp = constrainAudioOpusSdp(description.sdp);
+    if (sdp === description.sdp) {
+      return description;
+    }
+    recordEvent('audio opus sdp', describeAudioOpusSdpConstraints());
+    return {
+      type: description.type,
+      sdp,
+    };
+  }
+
+  function hasAudioOpusSdpConstraints() {
+    return AUDIO_OPUS_MAX_BITRATE_BPS > 0 ||
+      AUDIO_OPUS_STEREO !== null ||
+      AUDIO_OPUS_DTX !== null ||
+      AUDIO_OPUS_FEC !== null;
+  }
+
+  function describeAudioOpusSdpConstraints() {
+    const parts = [];
+    if (AUDIO_OPUS_MAX_BITRATE_BPS > 0) {
+      parts.push(`max=${AUDIO_OPUS_MAX_BITRATE_BPS}`);
+    }
+    if (AUDIO_OPUS_STEREO !== null) {
+      parts.push(`stereo=${AUDIO_OPUS_STEREO ? 1 : 0}`);
+    }
+    if (AUDIO_OPUS_DTX !== null) {
+      parts.push(`dtx=${AUDIO_OPUS_DTX ? 1 : 0}`);
+    }
+    if (AUDIO_OPUS_FEC !== null) {
+      parts.push(`fec=${AUDIO_OPUS_FEC ? 1 : 0}`);
+    }
+    return parts.join(' ');
+  }
+
+  function constrainAudioOpusSdp(sdp) {
+    const lines = sdp.split(/\r\n|\n/);
+    const opusPayloadTypes = new Set();
+    const rtpmapIndexes = new Map();
+    for (let i = 0; i < lines.length; i += 1) {
+      const match = lines[i].match(/^a=rtpmap:(\d+)\s+opus\/48000/i);
+      if (!match) {
+        continue;
+      }
+      opusPayloadTypes.add(match[1]);
+      rtpmapIndexes.set(match[1], i);
+    }
+    if (opusPayloadTypes.size === 0) {
+      return sdp;
+    }
+
+    const updatedPayloadTypes = new Set();
+    for (let i = 0; i < lines.length; i += 1) {
+      const match = lines[i].match(/^a=fmtp:(\d+)\s+(.*)$/);
+      if (!match || !opusPayloadTypes.has(match[1])) {
+        continue;
+      }
+      lines[i] = `a=fmtp:${match[1]} ${formatAudioOpusFmtp(match[2])}`;
+      updatedPayloadTypes.add(match[1]);
+    }
+
+    const missingPayloadTypes = Array.from(opusPayloadTypes)
+      .filter((payloadType) => !updatedPayloadTypes.has(payloadType))
+      .sort((a, b) => (rtpmapIndexes.get(b) || 0) - (rtpmapIndexes.get(a) || 0));
+    for (const payloadType of missingPayloadTypes) {
+      const index = rtpmapIndexes.get(payloadType);
+      if (!Number.isInteger(index)) {
+        continue;
+      }
+      lines.splice(index + 1, 0, `a=fmtp:${payloadType} ${formatAudioOpusFmtp('')}`);
+    }
+
+    return lines.join('\r\n');
+  }
+
+  function formatAudioOpusFmtp(fmtp) {
+    const params = new Map();
+    String(fmtp || '')
+      .split(';')
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .forEach((part) => {
+        const separator = part.indexOf('=');
+        if (separator === -1) {
+          params.set(part.toLowerCase(), { key: part, value: '' });
+          return;
+        }
+        const key = part.slice(0, separator).trim();
+        const value = part.slice(separator + 1).trim();
+        params.set(key.toLowerCase(), { key, value });
+      });
+
+    setAudioOpusFmtpParam(params, 'maxaveragebitrate',
+      AUDIO_OPUS_MAX_BITRATE_BPS > 0 ? String(AUDIO_OPUS_MAX_BITRATE_BPS) : null);
+    if (AUDIO_OPUS_STEREO !== null) {
+      const stereo = AUDIO_OPUS_STEREO ? '1' : '0';
+      setAudioOpusFmtpParam(params, 'stereo', stereo);
+      setAudioOpusFmtpParam(params, 'sprop-stereo', stereo);
+    }
+    setAudioOpusFmtpParam(params, 'usedtx',
+      AUDIO_OPUS_DTX !== null ? (AUDIO_OPUS_DTX ? '1' : '0') : null);
+    setAudioOpusFmtpParam(params, 'useinbandfec',
+      AUDIO_OPUS_FEC !== null ? (AUDIO_OPUS_FEC ? '1' : '0') : null);
+
+    return Array.from(params.values())
+      .map(({ key, value }) => (value === '' ? key : `${key}=${value}`))
+      .join(';');
+  }
+
+  function setAudioOpusFmtpParam(params, key, value) {
+    if (value === null) {
+      return;
+    }
+    params.set(key.toLowerCase(), { key, value });
+  }
+
   async function setOfferAndAnswer(offer) {
     peerConnection = await createPeerConnection({ iceServers: ayameIceServers });
     updateUiState();
@@ -2434,7 +2580,7 @@
       await peerConnection.setRemoteDescription(offer);
       hasReceivedSdp = true;
       const answer = await peerConnection.createAnswer();
-      await peerConnection.setLocalDescription(answer);
+      await peerConnection.setLocalDescription(applyAudioOpusSdpConstraints(answer));
       sendSignalingDescription(peerConnection.localDescription);
       for (const candidate of candidates) {
         addIceCandidate(candidate);
@@ -2758,7 +2904,7 @@
     updateUiState();
     try {
       const offer = await peerConnection.createOffer();
-      await peerConnection.setLocalDescription(offer);
+      await peerConnection.setLocalDescription(applyAudioOpusSdpConstraints(offer));
       sendSignalingDescription(peerConnection.localDescription);
     } catch (error) {
       console.error('makeOffer failed:', error);
