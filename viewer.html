@@ -458,6 +458,13 @@
       pointer-events: auto;
     }
 
+    body.controls-swapped .panel {
+      grid-template-columns: minmax(110px, 15vw) auto minmax(230px, 34vw);
+      grid-template-areas:
+        "throttle actions steering"
+        "throttle actions steering";
+    }
+
     .top-primary,
     .top-secondary {
       display: flex;
@@ -470,6 +477,10 @@
     .top-primary {
       margin-bottom: 8px;
       opacity: 0.96;
+    }
+
+    body.media-controls-hidden .top-primary {
+      display: none;
     }
 
     .top-secondary {
@@ -629,6 +640,13 @@
         max-width: none;
       }
 
+      body.controls-swapped .panel {
+        grid-template-columns: minmax(88px, 22vw) minmax(180px, 1fr);
+        grid-template-areas:
+          "throttle steering"
+          "actions actions";
+      }
+
       .status {
         grid-template-columns: 1fr;
         min-width: 0;
@@ -723,6 +741,7 @@
         <button id="btnFullscreen" type="button">Fullscreen</button>
         <button id="btnFlip" type="button">Flip</button>
         <button id="btnMirror" type="button">Mirror</button>
+        <button id="btnSwapControls" type="button">Swap</button>
         <button id="btnAudioFilter" type="button">Filter</button>
         <button id="btnDebug" type="button">Debug</button>
         <span class="debug-controls">
@@ -816,7 +835,7 @@
     </div>
   </div>
 
-  <script src="./viewer.js?v=20260621-race-hud-public"></script>
+  <script src="./viewer.js?v=20260621-audio-controls-option"></script>
 </body>
 
 </html>

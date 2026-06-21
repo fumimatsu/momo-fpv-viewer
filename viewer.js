@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VIEWER_BUILD_ID = '20260621-race-hud-public';
+  const VIEWER_BUILD_ID = '20260621-audio-controls-option';
   const DEFAULT_HOST = '192.168.11.3:8080';
   const RECONNECT_BASE_DELAY_MS = 500;
   const RECONNECT_MAX_DELAY_MS = 5000;
@@ -86,7 +86,10 @@
   const AUDIO_OPUS_STEREO = getOptionalBooleanParam('audioOpusStereo');
   const AUDIO_OPUS_DTX = getOptionalBooleanParam('audioOpusDtx');
   const AUDIO_OPUS_FEC = getOptionalBooleanParam('audioOpusFec');
-  const MEDIA_CONTROLS_VISIBLE = getBooleanParam('mediaControls', !location.pathname.includes('local-mic-ui'));
+  const MEDIA_CONTROLS_VISIBLE = getBooleanParam(
+    'audioControls',
+    getBooleanParam('mediaControls', !location.pathname.includes('local-mic-ui')),
+  );
   const MIC_DEFAULT_VOLUME = Math.max(0, Math.min(200, getNumberParamAllowZero('micVolume', 100)));
   const MIC_METER_INTERVAL_MS = 100;
   const ROOM_LOCK_ENABLED = getBooleanParam('roomLock', SIGNALING_MODE === 'ayame');
@@ -145,6 +148,7 @@
   const btnFullscreen = document.getElementById('btnFullscreen');
   const btnFlip = document.getElementById('btnFlip');
   const btnMirror = document.getElementById('btnMirror');
+  const btnSwapControls = document.getElementById('btnSwapControls');
   const btnAudio = document.getElementById('btnAudio');
   const btnAudioFilter = document.getElementById('btnAudioFilter');
   const btnMic = document.getElementById('btnMic');
@@ -432,6 +436,7 @@
 
   function applyMediaControlsVisibility() {
     const hidden = !MEDIA_CONTROLS_VISIBLE;
+    document.body.classList.toggle('media-controls-hidden', hidden);
     setElementHidden(btnAudio?.closest('.media-control') || btnAudio, hidden);
     setElementHidden(btnAudioFilter, hidden);
     setElementHidden(micTxState?.closest('.debug-only'), hidden);
@@ -545,6 +550,12 @@
     return mirror === '1' || mirror === 'true';
   }
 
+  function isControlsSwappedByDefault() {
+    const params = getUrlParams();
+    const value = params.get('swapControls') || params.get('controlsSwapped');
+    return value === '1' || value === 'true';
+  }
+
   function setDebugOsd(enabled) {
     document.body.classList.toggle('debug-osd', enabled);
     btnDebug.textContent = enabled ? 'Debug On' : 'Debug';
@@ -575,6 +586,16 @@
 
   function toggleVideoMirror() {
     setVideoMirror(!document.body.classList.contains('mirror-video'));
+  }
+
+  function setControlsSwapped(enabled) {
+    document.body.classList.toggle('controls-swapped', enabled);
+    btnSwapControls.textContent = enabled ? 'Swap On' : 'Swap';
+    btnSwapControls.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+  }
+
+  function toggleControlsSwapped() {
+    setControlsSwapped(!document.body.classList.contains('controls-swapped'));
   }
 
   function ensureAudioGraph() {
@@ -3853,6 +3874,7 @@
   });
   btnFlip.addEventListener('click', toggleVideoFlip);
   btnMirror.addEventListener('click', toggleVideoMirror);
+  btnSwapControls.addEventListener('click', toggleControlsSwapped);
   applyMediaControlsVisibility();
   if (MEDIA_CONTROLS_VISIBLE) {
     btnAudio.addEventListener('click', toggleAudio);
@@ -3894,6 +3916,7 @@
     setDebugOsd,
     setVideoFlip,
     setVideoMirror,
+    setControlsSwapped,
     setMicEnabled,
     setMicToneEnabled,
     connectRaceControl,
@@ -3945,6 +3968,9 @@
         paddleRightButton: GAMEPAD_PADDLE_RIGHT_BUTTON,
         profileId: GAMEPAD_PROFILE.id || '',
       },
+      controls: {
+        swapped: document.body.classList.contains('controls-swapped'),
+      },
       race: {
         enabled: RACE_MODE,
         url: normalizeRaceControlUrl(),
@@ -3962,6 +3988,7 @@
   recordEvent('viewer build', VIEWER_BUILD_ID);
   setVideoFlip(isFlipEnabledByDefault());
   setVideoMirror(isMirrorEnabledByDefault());
+  setControlsSwapped(isControlsSwappedByDefault());
   setAudioEnabled(false);
   setAudioFilterEnabled(AUDIO_FILTER_DEFAULT);
   setDebugOsd(isDebugEnabledByDefault());

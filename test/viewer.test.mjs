@@ -74,3 +74,26 @@ test('Race diagnostics are exposed for manual debugging', () => {
   assert.match(js, /race: \{/);
   assert.match(js, /lastMessageAgeMs/);
 });
+
+test('Audio and microphone controls can be fully hidden', () => {
+  const html = readProjectFile('viewer.html');
+  const js = readProjectFile('viewer.js');
+  assert.match(js, /getBooleanParam\(\s*'audioControls'/);
+  assert.match(js, /getBooleanParam\('mediaControls'/);
+  assert.match(js, /media-controls-hidden/);
+  assert.match(html, /body\.media-controls-hidden \.top-primary/);
+  assert.match(html, /class="media-control"/);
+  assert.match(html, /id="btnMic"/);
+});
+
+test('RC control positions can be swapped from URL and UI', () => {
+  const html = readProjectFile('viewer.html');
+  const js = readProjectFile('viewer.js');
+  assert.match(html, /body\.controls-swapped \.panel/);
+  assert.match(html, /id="btnSwapControls"/);
+  assert.match(js, /function isControlsSwappedByDefault\(\)/);
+  assert.match(js, /params\.get\('swapControls'\)/);
+  assert.match(js, /function setControlsSwapped\(enabled\)/);
+  assert.match(js, /btnSwapControls\.addEventListener\('click', toggleControlsSwapped\)/);
+  assert.match(js, /setControlsSwapped\(isControlsSwappedByDefault\(\)\)/);
+});

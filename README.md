@@ -107,6 +107,18 @@ DEVICE_STATUS=debug ./start-viewer.sh 192.168.11.2:8080
 VIDEO_RECONNECT=1 ./start-viewer.sh 192.168.11.2:8080
 ```
 
+URL で直接指定する場合、Audio / Mic を使わない車両では `audioControls=0` を付けます。右上の Audio / Mic 行を完全に非表示にし、Debug / Flip などの操作だけを残します。古い URL との互換用に `mediaControls=0` も同じ意味で扱います。
+
+```text
+https://fumimatsu.github.io/momo-fpv-viewer/viewer.html?signaling=ayame&roomId=<room>&id=FPV-03&deviceStatus=off&autoReconnect=1&audioControls=0
+```
+
+ステアリングとスロットルの画面上の位置を入れ替える場合は `swapControls=1` を付けます。表示中は右上の `Swap` ボタンでも切り替えられます。
+
+```text
+https://fumimatsu.github.io/momo-fpv-viewer/viewer.html?signaling=ayame&roomId=<room>&id=FPV-03&deviceStatus=off&autoReconnect=1&swapControls=1
+```
+
 ## 初期値
 
 - 接続先: `192.168.11.2:8080`
@@ -117,6 +129,7 @@ VIDEO_RECONNECT=1 ./start-viewer.sh 192.168.11.2:8080
 - Video reconnect: off
 - Flip: on
 - Mirror: off
+- Audio / Mic controls: on
 
 `Device status` は Pi 側の `momo-status.service` が `8090/status` を返す前提です。初期値は `off` なので、通常起動では Status API を呼びません。Device 情報は Debug OSD を ON にして `Refresh Device` を押した時だけ `8090/status` から取得します。Mode は Debug OSD を ON にして `Refresh Mode` を押した時だけ `8090/mode` から取得します。Pi Zero 2 W では Status API の常時取得は負荷や切り分けが難しくなるため、通常運用では使いません。
 
