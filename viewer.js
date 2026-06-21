@@ -42,15 +42,17 @@
     getNumberParamWithProfile('gamepadSteeringGain', 'steeringGain', GAMEPAD_STEERING_CALIBRATED ? 1.0 : 3.75),
     GAMEPAD_STEERING_CALIBRATED,
   );
-  const GAMEPAD_THROTTLE_AXIS = getNumberParamWithProfile('gamepadThrottleAxis', 'throttleAxis', 5, true);
+  const GAMEPAD_THROTTLE_BUTTON = getNumberParamWithProfile('gamepadThrottleButton', 'throttleButton', -1, true);
+  const GAMEPAD_THROTTLE_AXIS = getNumberParamWithProfile('gamepadThrottleAxis', 'throttleAxis', GAMEPAD_THROTTLE_BUTTON >= 0 ? -1 : 5, true);
   const GAMEPAD_THROTTLE_INVERT = getBooleanParamWithProfile('gamepadThrottleInvert', 'throttleInvert', false);
-  const GAMEPAD_THROTTLE_IDLE = getNumberParamWithProfile('gamepadThrottleIdle', 'throttleIdle', 1);
-  const GAMEPAD_THROTTLE_PRESSED = getNumberParamWithProfile('gamepadThrottlePressed', 'throttlePressed', -1);
+  const GAMEPAD_THROTTLE_IDLE = getNumberParamWithProfile('gamepadThrottleIdle', 'throttleIdle', GAMEPAD_THROTTLE_BUTTON >= 0 ? 0 : 1);
+  const GAMEPAD_THROTTLE_PRESSED = getNumberParamWithProfile('gamepadThrottlePressed', 'throttlePressed', GAMEPAD_THROTTLE_BUTTON >= 0 ? 1 : -1);
   const GAMEPAD_THROTTLE_IDLE_CONFIGURED = hasNumberParamWithProfile('gamepadThrottleIdle', 'throttleIdle');
-  const GAMEPAD_BRAKE_AXIS = getNumberParamWithProfile('gamepadBrakeAxis', 'brakeAxis', 6, true);
+  const GAMEPAD_BRAKE_BUTTON = getNumberParamWithProfile('gamepadBrakeButton', 'brakeButton', -1, true);
+  const GAMEPAD_BRAKE_AXIS = getNumberParamWithProfile('gamepadBrakeAxis', 'brakeAxis', GAMEPAD_BRAKE_BUTTON >= 0 ? -1 : 6, true);
   const GAMEPAD_BRAKE_INVERT = getBooleanParamWithProfile('gamepadBrakeInvert', 'brakeInvert', false);
-  const GAMEPAD_BRAKE_IDLE = getNumberParamWithProfile('gamepadBrakeIdle', 'brakeIdle', 1);
-  const GAMEPAD_BRAKE_PRESSED = getNumberParamWithProfile('gamepadBrakePressed', 'brakePressed', -1);
+  const GAMEPAD_BRAKE_IDLE = getNumberParamWithProfile('gamepadBrakeIdle', 'brakeIdle', GAMEPAD_BRAKE_BUTTON >= 0 ? 0 : 1);
+  const GAMEPAD_BRAKE_PRESSED = getNumberParamWithProfile('gamepadBrakePressed', 'brakePressed', GAMEPAD_BRAKE_BUTTON >= 0 ? 1 : -1);
   const GAMEPAD_BRAKE_IDLE_CONFIGURED = hasNumberParamWithProfile('gamepadBrakeIdle', 'brakeIdle');
   const GAMEPAD_PEDAL_DEADZONE = getNumberParamWithProfile('gamepadPedalDeadzone', 'pedalDeadzone', 0.05);
   const GAMEPAD_DRIVE_BUTTON = getNumberParamWithProfile('gamepadDriveButton', 'driveButton', 8, true);
@@ -1853,11 +1855,32 @@
     return Number.isFinite(value) ? value : fallback;
   }
 
+  function getGamepadButtonValue(gamepad, buttonIndex, fallback = 0) {
+    if (!gamepad || buttonIndex < 0 || buttonIndex >= gamepad.buttons.length) {
+      return fallback;
+    }
+    const button = gamepad.buttons[buttonIndex];
+    const value = typeof button === 'number' ? button : button.value;
+    return Number.isFinite(value) ? value : fallback;
+  }
+
+  function getGamepadPedalValue(gamepad, axis, buttonIndex, fallback = 0) {
+    if (buttonIndex >= 0) {
+      return getGamepadButtonValue(gamepad, buttonIndex, fallback);
+    }
+    return getGamepadAxis(gamepad, axis, fallback);
+  }
+
   function formatRawGamepadAxes(gamepad) {
     if (!gamepad) {
       return 'raw n/a';
     }
-    return `raw[${gamepad.axes.map((value, index) => `${index}:${Number(value).toFixed(2)}`).join(' ')}]`;
+    const axes = gamepad.axes.map((value, index) => `${index}:${Number(value).toFixed(2)}`).join(' ');
+    const buttons = gamepad.buttons.map((button, index) => {
+      const value = typeof button === 'number' ? button : button.value;
+      return `${index}:${Number(value).toFixed(2)}`;
+    }).join(' ');
+    return `raw[a ${axes}] btn[${buttons}]`;
   }
 
   function getGamepadButtonPressed(gamepad, buttonIndex) {
@@ -1882,11 +1905,21 @@
     if (!gamepad) {
       return;
     }
-    if (GAMEPAD_THROTTLE_AXIS >= 0 && !GAMEPAD_THROTTLE_IDLE_CONFIGURED) {
-      gamepadPedalIdle.throttle = getGamepadAxis(gamepad, GAMEPAD_THROTTLE_AXIS, gamepadPedalIdle.throttle);
+    if ((GAMEPAD_THROTTLE_AXIS >= 0 || GAMEPAD_THROTTLE_BUTTON >= 0) && !GAMEPAD_THROTTLE_IDLE_CONFIGURED) {
+      gamepadPedalIdle.throttle = getGamepadPedalValue(
+        gamepad,
+        GAMEPAD_THROTTLE_AXIS,
+        GAMEPAD_THROTTLE_BUTTON,
+        gamepadPedalIdle.throttle
+      );
     }
-    if (GAMEPAD_BRAKE_AXIS >= 0 && !GAMEPAD_BRAKE_IDLE_CONFIGURED) {
-      gamepadPedalIdle.brake = getGamepadAxis(gamepad, GAMEPAD_BRAKE_AXIS, gamepadPedalIdle.brake);
+    if ((GAMEPAD_BRAKE_AXIS >= 0 || GAMEPAD_BRAKE_BUTTON >= 0) && !GAMEPAD_BRAKE_IDLE_CONFIGURED) {
+      gamepadPedalIdle.brake = getGamepadPedalValue(
+        gamepad,
+        GAMEPAD_BRAKE_AXIS,
+        GAMEPAD_BRAKE_BUTTON,
+        gamepadPedalIdle.brake
+      );
     }
     recordEvent(
       'gamepad idle',
@@ -1928,17 +1961,17 @@
   function applyGamepadCommand(gamepad) {
     const rawSteering = getGamepadAxis(gamepad, GAMEPAD_STEERING_AXIS);
     const steering = normalizeSteeringAxis(rawSteering);
-    const throttle = GAMEPAD_THROTTLE_AXIS >= 0
+    const throttle = (GAMEPAD_THROTTLE_AXIS >= 0 || GAMEPAD_THROTTLE_BUTTON >= 0)
       ? normalizePedalAxis(
-        getGamepadAxis(gamepad, GAMEPAD_THROTTLE_AXIS, gamepadPedalIdle.throttle),
+        getGamepadPedalValue(gamepad, GAMEPAD_THROTTLE_AXIS, GAMEPAD_THROTTLE_BUTTON, gamepadPedalIdle.throttle),
         GAMEPAD_THROTTLE_INVERT,
         gamepadPedalIdle.throttle,
         GAMEPAD_THROTTLE_PRESSED
       )
       : 0;
-    const brake = GAMEPAD_BRAKE_AXIS >= 0
+    const brake = (GAMEPAD_BRAKE_AXIS >= 0 || GAMEPAD_BRAKE_BUTTON >= 0)
       ? normalizePedalAxis(
-        getGamepadAxis(gamepad, GAMEPAD_BRAKE_AXIS, gamepadPedalIdle.brake),
+        getGamepadPedalValue(gamepad, GAMEPAD_BRAKE_AXIS, GAMEPAD_BRAKE_BUTTON, gamepadPedalIdle.brake),
         GAMEPAD_BRAKE_INVERT,
         gamepadPedalIdle.brake,
         GAMEPAD_BRAKE_PRESSED
@@ -3622,8 +3655,10 @@
         steeringGain: GAMEPAD_STEERING_GAIN,
         steeringDeadzone: GAMEPAD_STEERING_DEADZONE,
         throttleAxis: GAMEPAD_THROTTLE_AXIS,
+        throttleButton: GAMEPAD_THROTTLE_BUTTON,
         throttleInvert: GAMEPAD_THROTTLE_INVERT,
         brakeAxis: GAMEPAD_BRAKE_AXIS,
+        brakeButton: GAMEPAD_BRAKE_BUTTON,
         brakeInvert: GAMEPAD_BRAKE_INVERT,
         pedalDeadzone: GAMEPAD_PEDAL_DEADZONE,
         driveButton: GAMEPAD_DRIVE_BUTTON,

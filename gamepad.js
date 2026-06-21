@@ -160,12 +160,14 @@ const mapping = {
   steeringLeft: -1,
   steeringRight: 1,
   throttleAxis: null,
+  throttleButton: null,
   throttleInvert: false,
   throttleIdle: 1,
   throttlePressed: -1,
   throttleMin: 1500,
   throttleMax: 2000,
   brakeAxis: null,
+  brakeButton: null,
   brakeInvert: false,
   brakeIdle: 1,
   brakePressed: -1,
@@ -300,11 +302,17 @@ function buildViewerUrl() {
   if (mapping.throttleAxis !== null) {
     params.set("gamepadThrottleAxis", String(mapping.throttleAxis));
   }
+  if (mapping.throttleButton !== null) {
+    params.set("gamepadThrottleButton", String(mapping.throttleButton));
+  }
   params.set("gamepadThrottleInvert", mapping.throttleInvert ? "1" : "0");
   params.set("gamepadThrottleIdle", String(mapping.throttleIdle ?? 1));
   params.set("gamepadThrottlePressed", String(mapping.throttlePressed ?? -1));
   if (mapping.brakeAxis !== null) {
     params.set("gamepadBrakeAxis", String(mapping.brakeAxis));
+  }
+  if (mapping.brakeButton !== null) {
+    params.set("gamepadBrakeButton", String(mapping.brakeButton));
   }
   params.set("gamepadBrakeInvert", mapping.brakeInvert ? "1" : "0");
   params.set("gamepadBrakeIdle", String(mapping.brakeIdle ?? 1));
@@ -434,6 +442,8 @@ function makeActions(type, index) {
       ["brakeAxis", "brake"]
     ]
     : [
+      ["throttleButton", "throttle"],
+      ["brakeButton", "brake"],
       ["driveButton", "drive"],
       ["paddleLeftButton", "paddleLeft"],
       ["paddleRightButton", "paddleRight"]
@@ -523,8 +533,10 @@ function fieldLabel(field) {
     case "steeringAxis":
       return t("steering");
     case "throttleAxis":
+    case "throttleButton":
       return t("throttle");
     case "brakeAxis":
+    case "brakeButton":
       return t("brake");
     case "driveButton":
       return t("drive");
@@ -539,6 +551,15 @@ function fieldLabel(field) {
 
 function assignInput(field, index) {
   mapping[field] = index;
+  if (field === "throttleAxis") {
+    mapping.throttleButton = null;
+  } else if (field === "throttleButton") {
+    mapping.throttleAxis = null;
+  } else if (field === "brakeAxis") {
+    mapping.brakeButton = null;
+  } else if (field === "brakeButton") {
+    mapping.brakeAxis = null;
+  }
   updateMappingOutput();
   assignStatusEl.textContent = `${fieldLabel(field)} = ${index}`;
 }
@@ -578,10 +599,29 @@ function getAxisValue(gamepad, axis) {
   return Number.isFinite(value) ? Number(value.toFixed(6)) : null;
 }
 
+function getButtonValue(gamepad, buttonIndex) {
+  if (!gamepad || buttonIndex === null || buttonIndex === undefined || buttonIndex < 0 || buttonIndex >= gamepad.buttons.length) {
+    return null;
+  }
+  const button = gamepad.buttons[buttonIndex];
+  const value = typeof button === "number" ? button : button.value;
+  return Number.isFinite(value) ? Number(value.toFixed(6)) : null;
+}
+
+function getPedalValue(gamepad, axis, buttonIndex) {
+  if (buttonIndex !== null && buttonIndex !== undefined) {
+    const buttonValue = getButtonValue(gamepad, buttonIndex);
+    if (buttonValue !== null) {
+      return buttonValue;
+    }
+  }
+  return getAxisValue(gamepad, axis);
+}
+
 function setCapturedBoundary(label, gamepad) {
   const steering = getAxisValue(gamepad, mapping.steeringAxis);
-  const throttle = getAxisValue(gamepad, mapping.throttleAxis);
-  const brake = getAxisValue(gamepad, mapping.brakeAxis);
+  const throttle = getPedalValue(gamepad, mapping.throttleAxis, mapping.throttleButton);
+  const brake = getPedalValue(gamepad, mapping.brakeAxis, mapping.brakeButton);
   const updated = [];
 
   if (label === "idle") {
