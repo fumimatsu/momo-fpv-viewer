@@ -124,6 +124,59 @@
       font-weight: 700;
     }
 
+    .race-only {
+      display: none;
+    }
+
+    body.race-mode .race-only {
+      display: block;
+    }
+
+    body.race-mode .status .race-only {
+      display: block;
+    }
+
+    body.race-mode .status .debug-only.race-only {
+      display: none;
+    }
+
+    body.race-mode.debug-osd .status .debug-only.race-only {
+      display: block;
+    }
+
+    .race-banner {
+      position: fixed;
+      top: calc(72px + env(safe-area-inset-top));
+      left: 50%;
+      transform: translateX(-50%);
+      min-width: min(520px, calc(100vw - 32px));
+      max-width: calc(100vw - 32px);
+      padding: 12px 18px;
+      border: 1px solid rgba(255, 255, 255, 0.38);
+      background: rgba(5, 6, 8, 0.72);
+      color: #ffffff;
+      text-align: center;
+      text-shadow:
+        0 0 2px #000000,
+        1px 1px 2px #000000;
+      pointer-events: none;
+    }
+
+    .race-banner-main {
+      display: block;
+      font-size: 34px;
+      line-height: 1;
+      font-weight: 800;
+    }
+
+    .race-banner-sub {
+      display: block;
+      margin-top: 6px;
+      font-size: 16px;
+      line-height: 1.2;
+      color: #d8dee9;
+    }
+
     .control {
       display: contents;
       font-size: 18px;
@@ -582,6 +635,19 @@
         width: 100%;
       }
 
+      .race-banner {
+        top: calc(64px + env(safe-area-inset-top));
+        padding: 10px 14px;
+      }
+
+      .race-banner-main {
+        font-size: 26px;
+      }
+
+      .race-banner-sub {
+        font-size: 14px;
+      }
+
       .control {
         width: 100%;
         min-width: 0;
@@ -631,6 +697,11 @@
 <body>
   <video id="remote_video" autoplay muted playsinline></video>
 
+  <div id="raceBanner" class="race-banner race-only" aria-live="polite">
+    <span id="raceBannerMain" class="race-banner-main">Race</span>
+    <span id="raceBannerSub" class="race-banner-sub">waiting</span>
+  </div>
+
   <div class="top">
     <div class="top-controls">
       <input id="endpoint" class="hidden-endpoint" type="text" autocomplete="off" spellcheck="false">
@@ -677,6 +748,15 @@
           <div><span>ID</span> <strong id="hostState">n/a</strong></div>
           <div><span>Time</span> <strong id="timeState">n/a</strong></div>
         </div>
+        <div class="status-row race-only">
+          <div><span>Race</span> <strong id="racePhaseState">off</strong></div>
+          <div><span>Flag</span> <strong id="raceFlagState">n/a</strong></div>
+        </div>
+        <div class="status-row race-only">
+          <div><span>Pos</span> <strong id="racePositionState">n/a</strong></div>
+          <div><span>Lap</span> <strong id="raceLapState">n/a</strong></div>
+        </div>
+        <div class="debug-only race-only"><span>RaceWS</span> <strong id="raceWsState">closed</strong></div>
         <div class="debug-only"><span>WebSocket</span> <strong id="wsState">closed</strong></div>
         <div class="debug-only"><span>ICE</span> <strong id="iceState">new</strong></div>
         <div class="debug-only"><span>DataChannel</span> <strong id="dcState">closed</strong></div>
@@ -736,7 +816,7 @@
     </div>
   </div>
 
-  <script src="./viewer.js?v=20260526-audio-opus-sdp"></script>
+  <script src="./viewer.js?v=20260621-race-hud-public"></script>
 </body>
 
 </html>

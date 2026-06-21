@@ -12,6 +12,16 @@
 
 `viewer.html` を直接開くのではなく、同梱スクリプトでローカル HTTP サーバーを起動してから開きます。
 
+## テスト
+
+Node.js 22 以降で実行します。
+
+```sh
+npm test
+```
+
+テストでは `viewer.js` / `gamepad.js` / `monitor.js` の構文、Race HUD の DOM 組み込み、`viewer.html` の cache buster、Race Control WebSocket の `raceToken` 転送、`autoStart=0` と Race 表示の独立性を確認します。
+
 ## Windows
 
 PowerShell:
@@ -339,15 +349,33 @@ SIGNALING=ayame ROOM_ID=momo-fpv-02 DEVICE_ID=FPV-02 ./start-viewer.sh
 
 iPhone で Ayame Viewer を開く場合、Momo / Pi を global に公開する必要はありません。ただし `viewer.html` と `viewer.js` は iPhone から読める場所に置く必要があります。同一 LAN なら PC または Pi で静的 HTTP サーバーを `0.0.0.0` bind で起動し、iPhone から `http://<server-ip>:18080/viewer.html?...` を開きます。外部回線から使う場合は、GitHub Pages / Cloudflare Pages / Netlify などに Viewer だけを静的配置するか、iPhone も Tailscale に入れて LAN 側の Viewer サーバーへアクセスします。`deviceHost=192.168.11.2` は LAN / Tailscale 内でしか status API に届きません。Ayame の映像自体は status API と別経路です。
 
-GitHub Pages 用には `.github/workflows/deploy-pages.yml` で `client/` をそのまま配信します。公開 URL の形は以下です。
+GitHub Pages 用には `.github/workflows/deploy-pages.yml` でこの repo の静的ファイルをそのまま配信します。公開 URL の形は以下です。
 
 ```text
-https://fumimatsu.github.io/momo-fpv/viewer.html?signaling=ayame&roomId=<room>&id=<device>&deviceStatus=off&autoReconnect=1&clientId=auto
+https://fumimatsu.github.io/momo-fpv-viewer/viewer.html?signaling=ayame&roomId=<room>&id=<device>&deviceStatus=off&autoReconnect=1&clientId=auto
 ```
 
 外部の人に操作させる場合は、`Mode Refresh` と `Device status` は使わない前提にします。DriveON と RC 操作は DataChannel だけで動くため、Viewer が GitHub Pages 上にあっても成立します。
 
 固定 roomId を公開すると、その URL を知っている人が車体を操作できます。イベントや検証ごとに推測しにくい roomId を払い出し、SNS や public issue に残さないでください。signaling key を使う場合は、URL に入れた時点で共有相手へ見えます。秘匿が必要なら URL 配布だけで守る設計は弱いです。
+
+## Race Control HUD
+
+Race Control HUD は opt-in です。Momo の映像 / 操縦経路とは別に、Race Control の WebSocket から start / flag / position / lap を受け取ります。
+
+Race 表示だけをローカルで確認する場合:
+
+```text
+http://127.0.0.1:18080/viewer.html#debug=1&deviceStatus=off&autoStart=0&autoReconnect=0&raceMode=1&raceUrl=ws%3A%2F%2F127.0.0.1%3A8787%2Fws%2Fraces%2Frace-test&raceToken=<viewer-token>&id=FPV-03
+```
+
+`autoStart=0` は FPV 映像へ接続しないための指定です。Race HUD / RaceWS の表示だけを切り分ける時に使います。実運用で映像も同時に見る場合は `autoStart=1`、または既定値のままにします。Race Control は別 WebSocket なので、FPV 接続の有無とは独立して動きます。
+
+公開 Viewer で Ayame と Race Control を同時に使う場合:
+
+```text
+https://fumimatsu.github.io/momo-fpv-viewer/viewer.html?signaling=ayame&roomId=<room>&id=FPV-03&clientId=auto&deviceStatus=off&autoReconnect=1&raceMode=1&raceUrl=wss%3A%2F%2F<race-control-host>%2Fws%2Fraces%2F<race-id>&raceToken=<viewer-token>
+```
 
 ## 必要なもの
 

@@ -1,6 +1,7 @@
 (() => {
   'use strict';
 
+  const VIEWER_BUILD_ID = '20260621-race-hud-public';
   const DEFAULT_HOST = '192.168.11.3:8080';
   const RECONNECT_BASE_DELAY_MS = 500;
   const RECONNECT_MAX_DELAY_MS = 5000;
@@ -93,6 +94,12 @@
   const ROOM_LOCK_TTL_SEC = getNumberParam('roomLockTtl', 30);
   const ROOM_LOCK_POLL_MS = getNumberParam('roomLockPollMs', 5000);
   const ROOM_LOCK_HEARTBEAT_MAX_FAILURES = Math.max(1, getIntegerParam('roomLockHeartbeatFailures', 3));
+  const RACE_MODE = getBooleanParam('raceMode', false);
+  const RACE_URL_RAW = getStringParam(['raceUrl', 'raceWs'], '');
+  const RACE_TOKEN = getStringParam(['raceToken', 'viewerToken'], '');
+  const RACE_CAR_ID = getStringParam(['carId', 'raceCarId'], getStringParam(['id'], ''));
+  const RACE_RECONNECT_BASE_MS = getNumberParam('raceReconnectMs', 1000);
+  const RACE_RECONNECT_MAX_MS = getNumberParam('raceReconnectMaxMs', 10000);
 
   const remoteVideo = document.getElementById('remote_video');
   const endpointInput = document.getElementById('endpoint');
@@ -126,6 +133,14 @@
   const telemetryState = document.getElementById('telemetryState');
   const modeState = document.getElementById('modeState');
   const deviceState = document.getElementById('deviceState');
+  const raceBanner = document.getElementById('raceBanner');
+  const raceBannerMain = document.getElementById('raceBannerMain');
+  const raceBannerSub = document.getElementById('raceBannerSub');
+  const racePhaseState = document.getElementById('racePhaseState');
+  const raceFlagState = document.getElementById('raceFlagState');
+  const racePositionState = document.getElementById('racePositionState');
+  const raceLapState = document.getElementById('raceLapState');
+  const raceWsState = document.getElementById('raceWsState');
   const btnReconnect = document.getElementById('btnReconnect');
   const btnFullscreen = document.getElementById('btnFullscreen');
   const btnFlip = document.getElementById('btnFlip');
@@ -251,6 +266,12 @@
   let roomLockStatusTimer = null;
   let roomLockHeartbeatTimer = null;
   let roomLockHeartbeatFailures = 0;
+  let raceWs = null;
+  let raceState = null;
+  let raceReconnectTimer = null;
+  let raceReconnectAttempt = 0;
+  let raceReconnectEnabled = RACE_MODE;
+  let lastRaceMessageAt = 0;
   const gamepadPedalIdle = {
     throttle: GAMEPAD_THROTTLE_IDLE,
     brake: GAMEPAD_BRAKE_IDLE,
@@ -1050,6 +1071,262 @@
       return;
     }
     element.textContent = value;
+  }
+
+  function getRaceWsStatus() {
+    return raceWs ? ['connecting', 'open', 'closing', 'closed'][raceWs.readyState] : 'closed';
+  }
+
+  function normalizeRaceControlUrl() {
+    if (!RACE_URL_RAW) {
+      return '';
+    }
+    try {
+      const url = new URL(RACE_URL_RAW, location.href);
+      if (url.protocol === 'https:') {
+        url.protocol = 'wss:';
+      } else if (url.protocol === 'http:') {
+        url.protocol = 'ws:';
+      }
+      if (RACE_CAR_ID && !url.searchParams.has('carId')) {
+        url.searchParams.set('carId', RACE_CAR_ID);
+      }
+      if (RACE_TOKEN && !url.searchParams.has('viewerToken')) {
+        url.searchParams.set('viewerToken', RACE_TOKEN);
+      }
+      return url.toString();
+    } catch (error) {
+      recordEvent('race url invalid', error.message || String(error));
+      return '';
+    }
+  }
+
+  function getRaceSelf(state = raceState) {
+    if (!state) {
+      return null;
+    }
+    if (state.self) {
+      return state.self;
+    }
+    if (!RACE_CAR_ID || !Array.isArray(state.leaderboard)) {
+      return null;
+    }
+    return state.leaderboard.find((item) => item && item.carId === RACE_CAR_ID) || null;
+  }
+
+  function formatRacePosition(self) {
+    if (!self || !Number.isFinite(self.position)) {
+      return 'n/a';
+    }
+    return `P${self.position}`;
+  }
+
+  function formatRaceLap(self) {
+    if (!self || !Number.isFinite(self.lap)) {
+      return 'n/a';
+    }
+    if (Number.isFinite(self.lastLapMs)) {
+      return `${self.lap} ${formatMs(self.lastLapMs)}`;
+    }
+    return String(self.lap);
+  }
+
+  function formatMs(value) {
+    if (!Number.isFinite(value)) {
+      return '--';
+    }
+    const ms = Math.max(0, Math.round(value));
+    const seconds = Math.floor(ms / 1000);
+    const millis = String(ms % 1000).padStart(3, '0');
+    return `${seconds}.${millis}`;
+  }
+
+  function getRaceCountdownText(state) {
+    if (!state) {
+      return '';
+    }
+    if (Number.isFinite(state.startAtMs)) {
+      const remaining = Math.ceil((Number(state.startAtMs) - Date.now()) / 1000);
+      if (remaining > 0) {
+        return String(remaining);
+      }
+    }
+    if (Number.isFinite(state.countdown) && Number(state.countdown) > 0) {
+      return String(Math.ceil(Number(state.countdown)));
+    }
+    return '';
+  }
+
+  function getRaceBannerMain(state = raceState) {
+    if (!RACE_MODE) {
+      return 'Race';
+    }
+    if (!RACE_URL_RAW) {
+      return 'Race URL missing';
+    }
+    if (!state) {
+      return getRaceWsStatus() === 'open' ? 'Race waiting' : 'Race connecting';
+    }
+    const countdown = getRaceCountdownText(state);
+    if (countdown) {
+      return countdown;
+    }
+    switch (state.phase) {
+      case 'ready':
+        return 'READY';
+      case 'countdown':
+        return 'START';
+      case 'green':
+        return 'GO';
+      case 'paused':
+        return state.flag === 'red' ? 'RED FLAG' : 'PAUSED';
+      case 'finished':
+        return 'FINISH';
+      default:
+        return String(state.phase || 'idle').toUpperCase();
+    }
+  }
+
+  function getRaceBannerSub(state = raceState) {
+    if (!RACE_MODE) {
+      return 'off';
+    }
+    if (!RACE_URL_RAW) {
+      return 'set raceUrl';
+    }
+    if (!state) {
+      return getRaceWsStatus();
+    }
+    const self = getRaceSelf(state);
+    const parts = [];
+    if (state.message) {
+      parts.push(String(state.message));
+    }
+    if (state.flag && state.flag !== 'none') {
+      parts.push(`flag ${state.flag}`);
+    }
+    if (self) {
+      parts.push(`${formatRacePosition(self)} lap ${Number.isFinite(self.lap) ? self.lap : '-'}`);
+    }
+    return parts.join(' / ') || getRaceWsStatus();
+  }
+
+  function updateRaceUi() {
+    document.body.classList.toggle('race-mode', RACE_MODE);
+    setText(raceWsState, getRaceWsStatus());
+    if (!RACE_MODE) {
+      setText(racePhaseState, 'off');
+      setText(raceFlagState, 'n/a');
+      setText(racePositionState, 'n/a');
+      setText(raceLapState, 'n/a');
+      return;
+    }
+    const self = getRaceSelf();
+    setText(racePhaseState, raceState?.phase || (RACE_URL_RAW ? 'waiting' : 'no url'));
+    setText(raceFlagState, raceState?.flag || 'n/a');
+    setText(racePositionState, formatRacePosition(self));
+    setText(raceLapState, formatRaceLap(self));
+    setText(raceBannerMain, getRaceBannerMain());
+    setText(raceBannerSub, getRaceBannerSub());
+    if (raceBanner) {
+      raceBanner.dataset.phase = raceState?.phase || 'waiting';
+      raceBanner.dataset.flag = raceState?.flag || 'none';
+    }
+  }
+
+  function clearRaceReconnectTimer() {
+    if (!raceReconnectTimer) {
+      return;
+    }
+    window.clearTimeout(raceReconnectTimer);
+    raceReconnectTimer = null;
+  }
+
+  function scheduleRaceReconnect(reason) {
+    if (!RACE_MODE || !raceReconnectEnabled || raceReconnectTimer) {
+      return;
+    }
+    const delay = Math.min(
+      RACE_RECONNECT_MAX_MS,
+      RACE_RECONNECT_BASE_MS * (2 ** Math.min(raceReconnectAttempt, 5)),
+    );
+    raceReconnectAttempt += 1;
+    recordEvent('race reconnect', `${reason} ${delay}ms`);
+    raceReconnectTimer = window.setTimeout(() => {
+      raceReconnectTimer = null;
+      connectRaceControl();
+    }, delay);
+    updateRaceUi();
+  }
+
+  function closeRaceControl() {
+    raceReconnectEnabled = false;
+    clearRaceReconnectTimer();
+    if (raceWs) {
+      try {
+        raceWs.close(1000, 'viewer closing');
+      } catch (_) {
+      }
+    }
+    raceWs = null;
+    updateRaceUi();
+  }
+
+  function handleRaceMessage(payload) {
+    if (!payload || payload.type !== 'race_state') {
+      return;
+    }
+    raceState = payload;
+    lastRaceMessageAt = performance.now();
+    updateRaceUi();
+  }
+
+  function connectRaceControl() {
+    if (!RACE_MODE) {
+      return;
+    }
+    const raceUrl = normalizeRaceControlUrl();
+    if (!raceUrl) {
+      recordEvent('race disabled', 'missing raceUrl');
+      updateRaceUi();
+      return;
+    }
+    if (
+      raceWs &&
+      (raceWs.readyState === WebSocket.CONNECTING || raceWs.readyState === WebSocket.OPEN)
+    ) {
+      return;
+    }
+    try {
+      raceReconnectEnabled = true;
+      raceWs = new WebSocket(raceUrl);
+      updateRaceUi();
+      raceWs.addEventListener('open', () => {
+        raceReconnectAttempt = 0;
+        recordEvent('race open', RACE_CAR_ID || 'no carId');
+        updateRaceUi();
+      });
+      raceWs.addEventListener('message', (event) => {
+        try {
+          handleRaceMessage(JSON.parse(event.data));
+        } catch (error) {
+          recordEvent('race message invalid', error.message || String(error));
+        }
+      });
+      raceWs.addEventListener('close', (event) => {
+        raceWs = null;
+        updateRaceUi();
+        scheduleRaceReconnect(`close ${event.code}`);
+      });
+      raceWs.addEventListener('error', () => {
+        recordEvent('race error', getRaceWsStatus());
+        updateRaceUi();
+      });
+    } catch (error) {
+      raceWs = null;
+      recordEvent('race connect failed', error.message || String(error));
+      scheduleRaceReconnect('connect failed');
+    }
   }
 
   function updateConnectionUi() {
@@ -3619,6 +3896,8 @@
     setVideoMirror,
     setMicEnabled,
     setMicToneEnabled,
+    connectRaceControl,
+    closeRaceControl,
     getDiagnostics: () => ({
       reconnectCount,
       lastReconnectAt,
@@ -3666,21 +3945,36 @@
         paddleRightButton: GAMEPAD_PADDLE_RIGHT_BUTTON,
         profileId: GAMEPAD_PROFILE.id || '',
       },
+      race: {
+        enabled: RACE_MODE,
+        url: normalizeRaceControlUrl(),
+        carId: RACE_CAR_ID,
+        ws: getRaceWsStatus(),
+        lastMessageAgeMs: lastRaceMessageAt > 0
+          ? Math.round(performance.now() - lastRaceMessageAt)
+          : null,
+        state: raceState,
+      },
     }),
     getPeerConnection: () => peerConnection,
   };
 
+  recordEvent('viewer build', VIEWER_BUILD_ID);
   setVideoFlip(isFlipEnabledByDefault());
   setVideoMirror(isMirrorEnabledByDefault());
   setAudioEnabled(false);
   setAudioFilterEnabled(AUDIO_FILTER_DEFAULT);
   setDebugOsd(isDebugEnabledByDefault());
+  updateRaceUi();
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
       visibleSince = performance.now();
     }
   });
-  window.addEventListener('pagehide', shutdownForPageHide);
+  window.addEventListener('pagehide', () => {
+    closeRaceControl();
+    shutdownForPageHide();
+  });
   startFpsMonitor();
   startLinkMonitor();
   startStatsMonitor();
@@ -3690,6 +3984,7 @@
   startRoomLockStatusMonitor();
   startGamepadPoller();
   updateGearUi();
+  connectRaceControl();
   if (AUTO_START) {
     connect().catch((error) => {
       recordEvent('connect failed', error.message || String(error));
