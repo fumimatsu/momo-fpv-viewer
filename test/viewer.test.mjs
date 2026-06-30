@@ -75,6 +75,32 @@ test('Race diagnostics are exposed for manual debugging', () => {
   assert.match(js, /lastMessageAgeMs/);
 });
 
+test('Race banner auto-hides during normal green running', () => {
+  const html = readProjectFile('viewer.html');
+  const js = readProjectFile('viewer.js');
+  assert.match(js, /const RACE_BANNER_TRANSIENT_MS = getNumberParam\('raceBannerMs', 4000\)/);
+  assert.match(js, /function isRaceBannerPersistent\(/);
+  assert.match(js, /state\.phase === 'finished'/);
+  assert.match(js, /state\.flag === 'yellow'/);
+  assert.match(js, /raceBanner\.classList\.toggle\('race-banner-hidden'/);
+  assert.match(html, /race-banner\.race-banner-hidden/);
+});
+
+test('Race countdown and start sound cues are available', () => {
+  const js = readProjectFile('viewer.js');
+  assert.match(js, /const RACE_SOUND_ENABLED = getBooleanParam\('raceSound', RACE_MODE\)/);
+  assert.match(js, /const RACE_SOUND_VOLUME = Math\.max\(0, Math\.min\(1/);
+  assert.match(js, /if \(Number\.isFinite\(state\.startAtMs\)\) \{/);
+  assert.match(js, /if \(remaining > 0\) \{\s*return String\(remaining\);\s*\}\s*return '';/);
+  assert.match(js, /function playRaceCountdownSound\(\)/);
+  assert.match(js, /function playRaceStartSound\(\)/);
+  assert.match(js, /playRaceSoundForState\(payload\)/);
+  assert.match(js, /function scheduleRaceCountdownTick\(/);
+  assert.match(js, /scheduleRaceCountdownTick\(payload\)/);
+  assert.match(js, /window\.addEventListener\('pointerdown', unlockRaceSound\)/);
+  assert.match(js, /soundUnlocked: raceSoundUnlocked/);
+});
+
 test('Audio and microphone controls can be fully hidden', () => {
   const html = readProjectFile('viewer.html');
   const js = readProjectFile('viewer.js');

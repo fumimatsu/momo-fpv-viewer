@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VIEWER_BUILD_ID = '20260621-audio-controls-option';
+  const VIEWER_BUILD_ID = '20260701-race-countdown-timing';
   const DEFAULT_HOST = '192.168.11.3:8080';
   const RECONNECT_BASE_DELAY_MS = 500;
   const RECONNECT_MAX_DELAY_MS = 5000;
@@ -103,6 +103,9 @@
   const RACE_CAR_ID = getStringParam(['carId', 'raceCarId'], getStringParam(['id'], ''));
   const RACE_RECONNECT_BASE_MS = getNumberParam('raceReconnectMs', 1000);
   const RACE_RECONNECT_MAX_MS = getNumberParam('raceReconnectMaxMs', 10000);
+  const RACE_BANNER_TRANSIENT_MS = getNumberParam('raceBannerMs', 4000);
+  const RACE_SOUND_ENABLED = getBooleanParam('raceSound', RACE_MODE);
+  const RACE_SOUND_VOLUME = Math.max(0, Math.min(1, getNumberParamAllowZero('raceSoundVolume', 0.35)));
 
   const remoteVideo = document.getElementById('remote_video');
   const endpointInput = document.getElementById('endpoint');
@@ -276,6 +279,13 @@
   let raceReconnectAttempt = 0;
   let raceReconnectEnabled = RACE_MODE;
   let lastRaceMessageAt = 0;
+  let lastRaceBannerEventKey = '';
+  let raceBannerVisibleUntil = 0;
+  let raceBannerHideTimer = null;
+  let raceAudioContext = null;
+  let raceSoundUnlocked = false;
+  let lastRaceSoundKey = '';
+  let raceCountdownTimer = null;
   const gamepadPedalIdle = {
     throttle: GAMEPAD_THROTTLE_IDLE,
     brake: GAMEPAD_BRAKE_IDLE,
@@ -1171,6 +1181,7 @@
       if (remaining > 0) {
         return String(remaining);
       }
+      return '';
     }
     if (Number.isFinite(state.countdown) && Number(state.countdown) > 0) {
       return String(Math.ceil(Number(state.countdown)));
@@ -1232,6 +1243,206 @@
     return parts.join(' / ') || getRaceWsStatus();
   }
 
+  function getRaceBannerEventKey(state = raceState) {
+    if (!state) {
+      return getRaceWsStatus();
+    }
+    const self = getRaceSelf(state);
+    return [
+      state.phase || '',
+      state.flag || '',
+      getRaceCountdownText(state),
+      state.message || '',
+      self && Number.isFinite(self.position) ? self.position : '',
+      self && Number.isFinite(self.lap) ? self.lap : '',
+      self && Number.isFinite(self.lastLapMs) ? Math.round(self.lastLapMs) : '',
+    ].join('|');
+  }
+
+  function isRaceBannerPersistent(state = raceState) {
+    if (!RACE_MODE) {
+      return false;
+    }
+    if (!RACE_URL_RAW || !state) {
+      return true;
+    }
+    if (getRaceCountdownText(state)) {
+      return true;
+    }
+    if (state.phase === 'ready' || state.phase === 'countdown' || state.phase === 'paused' || state.phase === 'finished') {
+      return true;
+    }
+    return state.flag === 'yellow' || state.flag === 'red' || state.flag === 'finish';
+  }
+
+  function clearRaceBannerHideTimer() {
+    if (!raceBannerHideTimer) {
+      return;
+    }
+    window.clearTimeout(raceBannerHideTimer);
+    raceBannerHideTimer = null;
+  }
+
+  function clearRaceCountdownTimer() {
+    if (!raceCountdownTimer) {
+      return;
+    }
+    window.clearTimeout(raceCountdownTimer);
+    raceCountdownTimer = null;
+  }
+
+  function scheduleRaceBannerHide() {
+    clearRaceBannerHideTimer();
+    if (!raceBannerVisibleUntil || raceBannerVisibleUntil <= performance.now()) {
+      return;
+    }
+    raceBannerHideTimer = window.setTimeout(() => {
+      raceBannerHideTimer = null;
+      updateRaceUi();
+    }, Math.max(0, raceBannerVisibleUntil - performance.now()));
+  }
+
+  function scheduleRaceCountdownTick(state = raceState) {
+    clearRaceCountdownTimer();
+    if (!state || !Number.isFinite(state.startAtMs)) {
+      return;
+    }
+    const remainingMs = Number(state.startAtMs) - Date.now();
+    if (remainingMs <= 0) {
+      return;
+    }
+    raceCountdownTimer = window.setTimeout(() => {
+      raceCountdownTimer = null;
+      playRaceSoundForState(raceState);
+      updateRaceUi();
+      scheduleRaceCountdownTick(raceState);
+    }, Math.min(250, Math.max(50, remainingMs)));
+  }
+
+  function markRaceBannerEvent(state = raceState) {
+    const eventKey = getRaceBannerEventKey(state);
+    if (isRaceBannerPersistent(state)) {
+      lastRaceBannerEventKey = eventKey;
+      raceBannerVisibleUntil = Number.POSITIVE_INFINITY;
+      clearRaceBannerHideTimer();
+      return;
+    }
+    if (eventKey !== lastRaceBannerEventKey) {
+      lastRaceBannerEventKey = eventKey;
+      raceBannerVisibleUntil = performance.now() + Math.max(0, RACE_BANNER_TRANSIENT_MS);
+      scheduleRaceBannerHide();
+    }
+  }
+
+  function isRaceBannerVisible() {
+    if (!RACE_MODE) {
+      return false;
+    }
+    if (isRaceBannerPersistent()) {
+      return true;
+    }
+    return raceBannerVisibleUntil > performance.now();
+  }
+
+  function getRaceAudioContext() {
+    if (!RACE_SOUND_ENABLED || RACE_SOUND_VOLUME <= 0) {
+      return null;
+    }
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) {
+      recordEvent('race sound unavailable', 'no AudioContext');
+      return null;
+    }
+    raceAudioContext = raceAudioContext || new AudioContextCtor();
+    return raceAudioContext;
+  }
+
+  function unlockRaceSound() {
+    if (!RACE_SOUND_ENABLED || raceSoundUnlocked) {
+      return;
+    }
+    const context = getRaceAudioContext();
+    if (!context) {
+      return;
+    }
+    context.resume?.()
+      .then(() => {
+        raceSoundUnlocked = context.state === 'running';
+      })
+      .catch((error) => {
+        recordEvent('race sound unlock failed', error.message || String(error));
+      });
+  }
+
+  function playRaceTone(frequency, startAt, durationMs, volume = RACE_SOUND_VOLUME) {
+    const context = getRaceAudioContext();
+    if (!context || context.state !== 'running') {
+      unlockRaceSound();
+      return false;
+    }
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    const attack = 0.008;
+    const release = 0.045;
+    const duration = Math.max(0.03, durationMs / 1000);
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(frequency, startAt);
+    gain.gain.setValueAtTime(0, startAt);
+    gain.gain.linearRampToValueAtTime(volume, startAt + attack);
+    gain.gain.setValueAtTime(volume, Math.max(startAt + attack, startAt + duration - release));
+    gain.gain.linearRampToValueAtTime(0, startAt + duration);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start(startAt);
+    oscillator.stop(startAt + duration + 0.02);
+    return true;
+  }
+
+  function playRaceCountdownSound() {
+    const context = getRaceAudioContext();
+    if (!context) {
+      return;
+    }
+    if (context.state !== 'running') {
+      unlockRaceSound();
+      return;
+    }
+    playRaceTone(880, context.currentTime, 120);
+  }
+
+  function playRaceStartSound() {
+    const context = getRaceAudioContext();
+    if (!context) {
+      return;
+    }
+    if (context.state !== 'running') {
+      unlockRaceSound();
+      return;
+    }
+    const now = context.currentTime;
+    playRaceTone(1046, now, 120);
+    playRaceTone(1568, now + 0.14, 260, Math.min(1, RACE_SOUND_VOLUME * 1.1));
+  }
+
+  function playRaceSoundForState(state = raceState) {
+    if (!RACE_SOUND_ENABLED || !state) {
+      return;
+    }
+    const countdown = getRaceCountdownText(state);
+    const soundKey = countdown ? `countdown:${countdown}` : `phase:${state.phase || ''}:flag:${state.flag || ''}`;
+    if (soundKey === lastRaceSoundKey) {
+      return;
+    }
+    lastRaceSoundKey = soundKey;
+    if (countdown) {
+      playRaceCountdownSound();
+      return;
+    }
+    if (state.phase === 'green') {
+      playRaceStartSound();
+    }
+  }
+
   function updateRaceUi() {
     document.body.classList.toggle('race-mode', RACE_MODE);
     setText(raceWsState, getRaceWsStatus());
@@ -1252,6 +1463,7 @@
     if (raceBanner) {
       raceBanner.dataset.phase = raceState?.phase || 'waiting';
       raceBanner.dataset.flag = raceState?.flag || 'none';
+      raceBanner.classList.toggle('race-banner-hidden', !isRaceBannerVisible());
     }
   }
 
@@ -1290,6 +1502,10 @@
       }
     }
     raceWs = null;
+    raceBannerVisibleUntil = 0;
+    lastRaceBannerEventKey = '';
+    clearRaceBannerHideTimer();
+    clearRaceCountdownTimer();
     updateRaceUi();
   }
 
@@ -1299,6 +1515,9 @@
     }
     raceState = payload;
     lastRaceMessageAt = performance.now();
+    markRaceBannerEvent(payload);
+    playRaceSoundForState(payload);
+    scheduleRaceCountdownTick(payload);
     updateRaceUi();
   }
 
@@ -3899,6 +4118,8 @@
   btnInputSetup.addEventListener('click', openInputSetup);
   window.addEventListener('keydown', onControlKeyDown);
   window.addEventListener('keyup', onControlKeyUp);
+  window.addEventListener('pointerdown', unlockRaceSound);
+  window.addEventListener('keydown', unlockRaceSound);
   remoteVideo.addEventListener('loadedmetadata', updateUiState);
   remoteVideo.addEventListener('resize', updateUiState);
   if (micVolumeInput) {
@@ -3976,6 +4197,9 @@
         url: normalizeRaceControlUrl(),
         carId: RACE_CAR_ID,
         ws: getRaceWsStatus(),
+        soundEnabled: RACE_SOUND_ENABLED,
+        soundUnlocked: raceSoundUnlocked,
+        audioContextState: raceAudioContext?.state || 'none',
         lastMessageAgeMs: lastRaceMessageAt > 0
           ? Math.round(performance.now() - lastRaceMessageAt)
           : null,
