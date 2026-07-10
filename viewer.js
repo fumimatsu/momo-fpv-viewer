@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VIEWER_BUILD_ID = '20260710-race-info-countdown';
+  const VIEWER_BUILD_ID = '20260710-race-info-countdown-fix1';
   const DEFAULT_HOST = '192.168.11.3:8080';
   const RECONNECT_BASE_DELAY_MS = 500;
   const RECONNECT_MAX_DELAY_MS = 5000;
@@ -1261,10 +1261,6 @@
     }
     const self = getRaceSelf(state);
     const parts = [];
-    const raceName = formatRaceName(state);
-    if (raceName !== 'n/a') {
-      parts.push(raceName);
-    }
     if (state.message) {
       parts.push(String(state.message));
     }
@@ -1285,6 +1281,8 @@
     return [
       state.phase || '',
       state.flag || '',
+      formatRaceName(state),
+      formatRaceTotalLaps(state),
       getRaceCountdownText(state),
       state.message || '',
       self && Number.isFinite(self.position) ? self.position : '',

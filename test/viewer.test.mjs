@@ -49,6 +49,8 @@ test('Race HUD displays raceInfo title and total laps', () => {
   assert.match(js, /function formatRaceTotalLaps\(state = raceState\)/);
   assert.match(js, /\$\{self\.lap\}\/\$\{Math\.floor\(totalLaps\)\}/);
   assert.match(js, /setText\(raceBannerTitle, raceName === 'n\/a' \? '' : raceName\)/);
+  assert.match(js, /state\.flag \|\| '',\s*formatRaceName\(state\),\s*formatRaceTotalLaps\(state\)/);
+  assert.doesNotMatch(js, /const parts = \[\];\s*const raceName = formatRaceName\(state\)/);
 });
 
 test('viewer.html cache buster matches VIEWER_BUILD_ID', () => {
