@@ -12,7 +12,7 @@ function readProjectFile(path) {
 }
 
 test('viewer JavaScript files parse', () => {
-  for (const file of ['viewer.js', 'gamepad.js', 'monitor.js']) {
+  for (const file of ['viewer.js', 'telemetry.js', 'gamepad.js', 'monitor.js']) {
     execFileSync(process.execPath, ['--check', join(rootDir, file)], {
       stdio: 'pipe',
     });
@@ -59,6 +59,16 @@ test('viewer.html cache buster matches VIEWER_BUILD_ID', () => {
   const buildMatch = js.match(/const VIEWER_BUILD_ID = '([^']+)'/);
   assert.ok(buildMatch, 'VIEWER_BUILD_ID is missing');
   assert.match(html, new RegExp(`viewer\\.js\\?v=${buildMatch[1]}`));
+  assert.match(html, new RegExp(`telemetry\\.js\\?v=${buildMatch[1]}`));
+});
+
+test('Telemetry parser is loaded before the Viewer and exposed in diagnostics', () => {
+  const html = readProjectFile('viewer.html');
+  const js = readProjectFile('viewer.js');
+  assert.ok(html.indexOf('telemetry.js') < html.indexOf('viewer.js'));
+  assert.match(js, /injectTelemetry:/);
+  assert.match(js, /emitMockTelemetryImpact/);
+  assert.match(js, /telemetry: telemetryTracker/);
 });
 
 test('Race Control WebSocket is independent from FPV autoStart', () => {
