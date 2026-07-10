@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VIEWER_BUILD_ID = '20260710-race-info-countdown-fix1';
+  const VIEWER_BUILD_ID = '20260710-telemetry-v1';
   const DEFAULT_HOST = '192.168.11.3:8080';
   const RECONNECT_BASE_DELAY_MS = 500;
   const RECONNECT_MAX_DELAY_MS = 5000;
@@ -106,6 +106,8 @@
   const RACE_BANNER_TRANSIENT_MS = getNumberParam('raceBannerMs', 4000);
   const RACE_SOUND_ENABLED = getBooleanParam('raceSound', RACE_MODE);
   const RACE_SOUND_VOLUME = Math.max(0, Math.min(1, getNumberParamAllowZero('raceSoundVolume', 0.35)));
+  const TELEMETRY_MOCK_ENABLED = getBooleanParam('telemetryMock', false);
+  const TELEMETRY_MOCK_HZ = Math.max(1, Math.min(100, getNumberParam('telemetryMockHz', 20)));
 
   const remoteVideo = document.getElementById('remote_video');
   const endpointInput = document.getElementById('endpoint');
@@ -233,6 +235,11 @@
   let rcBrakeTimer = null;
   let lastRcCommand = 'S:1500,T:1500';
   let lastTelemetry = 'n/a';
+  const telemetryTracker = window.FpvTelemetry?.TelemetryTracker
+    ? new window.FpvTelemetry.TelemetryTracker()
+    : null;
+  let telemetryMockGenerator = null;
+  let telemetryMockTimer = null;
   let dcPingSeq = 0;
   let dcRttMs = null;
   let lastDcPongAt = 0;
@@ -1660,6 +1667,7 @@
     setText(videoAgeState, getVideoAgeStatus());
     setText(dcRttState, getDcRttStatus());
     setText(micTxState, lastMicTxStatus);
+    updateTelemetryUi();
   }
 
   function updateRcUi() {
@@ -1958,7 +1966,30 @@
   }
 
   function getTelemetryStatus() {
-    return lastTelemetry;
+    if (!telemetryTracker) {
+      return lastTelemetry;
+    }
+    const snapshot = telemetryTracker.getSnapshot(performance.now());
+    const stream = snapshot.primary;
+    if (!stream) {
+      const result = snapshot.lastResult;
+      if (result.status === 'unknown_version') {
+        return `v${result.version ?? '?'} ignored`;
+      }
+      if (result.status === 'invalid') {
+        return `invalid ${result.reason}`;
+      }
+      if (result.status === 'accepted' && result.payload?.k === 'e') {
+        return `v1 event ${result.payload.evt.name}`;
+      }
+      return lastTelemetry;
+    }
+
+    const ageMs = Math.round(stream.stateAgeMs);
+    const state = stream.stale ? 'STALE' : 'ok';
+    const gap = snapshot.counters.missing > 0 ? ` gap${snapshot.counters.missing}` : '';
+    const lateral = stream.state.imu.a[1].toFixed(2);
+    return `v1 ${stream.src} ${state} q${stream.state.seq} ${ageMs}ms${gap} ay${lateral}`;
   }
 
   function getDcRttStatus() {
@@ -2066,14 +2097,55 @@
     setText(hostState, display);
   }
 
-  function applyTelemetry(message) {
-    lastTelemetry = message;
+  function applyTelemetry(message, source = 'datachannel') {
+    if (!telemetryTracker) {
+      lastTelemetry = message;
+      updateTelemetryUi();
+      return { status: 'legacy_module_missing', accepted: false };
+    }
+
+    const result = telemetryTracker.ingest(message, performance.now());
+    result.source = source;
+    if (result.status === 'legacy') {
+      lastTelemetry = message;
+    } else if (result.status === 'accepted') {
+      lastTelemetry = `v1 ${result.payload.k === 's' ? 'state' : result.payload.evt.name}`;
+    } else if (!telemetryTracker.getSnapshot(performance.now()).primary) {
+      lastTelemetry = `${result.status}${result.reason ? ` ${result.reason}` : ''}`;
+    }
     updateTelemetryUi();
 
-    const deviceStatus = formatTelemetryDeviceStatus(parseTelemetryFields(message));
-    if (deviceStatus) {
-      setText(deviceState, deviceStatus);
+    if (result.status === 'legacy') {
+      const deviceStatus = formatTelemetryDeviceStatus(parseTelemetryFields(message));
+      if (deviceStatus) {
+        setText(deviceState, deviceStatus);
+      }
     }
+    return result;
+  }
+
+  function startTelemetryMock() {
+    if (!TELEMETRY_MOCK_ENABLED || !window.FpvTelemetry?.TelemetryMockGenerator) {
+      return;
+    }
+    const periodMs = 1000 / TELEMETRY_MOCK_HZ;
+    telemetryMockGenerator = new window.FpvTelemetry.TelemetryMockGenerator({ periodMs });
+    const emitState = () => applyTelemetry(
+      telemetryMockGenerator.nextState(performance.now()),
+      'mock',
+    );
+    emitState();
+    telemetryMockTimer = window.setInterval(emitState, periodMs);
+  }
+
+  function emitMockTelemetryImpact(magnitude = 24.8) {
+    if (!telemetryMockGenerator) {
+      return null;
+    }
+    return applyTelemetry(
+      telemetryMockGenerator.nextImpact(performance.now(), magnitude),
+      'mock',
+    );
   }
 
   function handleDcPong(message) {
@@ -2099,7 +2171,7 @@
       return;
     }
     if (typeof message === 'string' && message.startsWith('TEL:')) {
-      applyTelemetry(message);
+      applyTelemetry(message, 'datachannel');
       return;
     }
     console.log('DataChannel RX:', message);
@@ -4181,6 +4253,8 @@
     setMicToneEnabled,
     connectRaceControl,
     closeRaceControl,
+    injectTelemetry: (message) => applyTelemetry(message, 'manual'),
+    emitMockTelemetryImpact,
     getDiagnostics: () => ({
       reconnectCount,
       lastReconnectAt,
@@ -4231,6 +4305,13 @@
       controls: {
         swapped: document.body.classList.contains('controls-swapped'),
       },
+      telemetry: telemetryTracker
+        ? {
+          mockEnabled: TELEMETRY_MOCK_ENABLED,
+          mockHz: TELEMETRY_MOCK_HZ,
+          ...telemetryTracker.getSnapshot(performance.now()),
+        }
+        : { available: false },
       race: {
         enabled: RACE_MODE,
         url: normalizeRaceControlUrl(),
@@ -4262,6 +4343,10 @@
     }
   });
   window.addEventListener('pagehide', () => {
+    if (telemetryMockTimer) {
+      window.clearInterval(telemetryMockTimer);
+      telemetryMockTimer = null;
+    }
     closeRaceControl();
     shutdownForPageHide();
   });
@@ -4275,6 +4360,7 @@
   startGamepadPoller();
   updateGearUi();
   connectRaceControl();
+  startTelemetryMock();
   if (AUTO_START) {
     connect().catch((error) => {
       recordEvent('connect failed', error.message || String(error));

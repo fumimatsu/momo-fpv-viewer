@@ -390,6 +390,29 @@ http://127.0.0.1:18080/viewer.html#debug=1&deviceStatus=off&autoStart=0&autoReco
 https://fumimatsu.github.io/momo-fpv-viewer/viewer.html?signaling=ayame&roomId=<room>&id=FPV-03&clientId=auto&deviceStatus=off&autoReconnect=1&raceMode=1&raceUrl=wss%3A%2F%2F<race-control-host>%2Fws%2Fraces%2F<race-id>&raceToken=<viewer-token>
 ```
 
+## Telemetry v1 diagnostics
+
+`TEL:` + compact JSONのv1 telemetryを受信すると、Viewerはstate/eventを分離し、source/boot単位で
+sequence gap、duplicate、out-of-order、timestamp regression、staleを追跡します。未知versionと
+invalid payloadは現在stateへ適用しません。legacyの`TEL:alive ...`表示は移行中も維持します。
+
+実センサーなしで確認する場合:
+
+```text
+http://127.0.0.1:18080/viewer.html#debug=1&autoStart=0&autoReconnect=0&deviceStatus=off&telemetryMock=1&telemetryMockHz=20
+```
+
+consoleからの確認:
+
+```js
+fpvViewer.getDiagnostics().telemetry
+fpvViewer.emitMockTelemetryImpact(30)
+fpvViewer.injectTelemetry('TEL:{"v":2}')
+```
+
+mockはViewer内のparserへ直接入力し、DataChannelや車体へ送信しません。staleを確認する時は
+`telemetryMock=0`で`fpvViewer.injectTelemetry(...)`を1回だけ実行します。
+
 ## 必要なもの
 
 - Chrome / Edge / Safari / Firefox のいずれか
