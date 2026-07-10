@@ -374,7 +374,7 @@ https://fumimatsu.github.io/momo-fpv-viewer/viewer.html?signaling=ayame&roomId=<
 
 ## Race Control HUD
 
-Race Control HUD は opt-in です。Momo の映像 / 操縦経路とは別に、Race Control の WebSocket から start / flag / position / lap を受け取ります。
+Race Control HUD は opt-in です。Momo の映像 / 操縦経路とは別に、Race Control の WebSocket から start / flag / position / lap / raceInfo を受け取ります。`raceInfo.title` は中央バナーと左上 HUD に表示し、`raceInfo.totalLaps` は Lap 表示を `現在/総周回` にします。
 
 Race 表示だけをローカルで確認する場合:
 

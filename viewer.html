@@ -124,6 +124,13 @@
       font-weight: 700;
     }
 
+    .status #raceNameState {
+      max-width: 220px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      vertical-align: bottom;
+    }
+
     .race-only {
       display: none;
     }
@@ -171,6 +178,19 @@
       font-size: 34px;
       line-height: 1;
       font-weight: 800;
+    }
+
+    .race-banner-title {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 15px;
+      line-height: 1.1;
+      font-weight: 700;
+      color: #eef3fa;
+    }
+
+    .race-banner-title:empty {
+      display: none;
     }
 
     .race-banner-sub {
@@ -720,6 +740,7 @@
   <video id="remote_video" autoplay muted playsinline></video>
 
   <div id="raceBanner" class="race-banner race-only" aria-live="polite">
+    <span id="raceBannerTitle" class="race-banner-title"></span>
     <span id="raceBannerMain" class="race-banner-main">Race</span>
     <span id="raceBannerSub" class="race-banner-sub">waiting</span>
   </div>
@@ -774,6 +795,10 @@
         <div class="status-row race-only">
           <div><span>Race</span> <strong id="racePhaseState">off</strong></div>
           <div><span>Flag</span> <strong id="raceFlagState">n/a</strong></div>
+        </div>
+        <div class="status-row race-only">
+          <div><span>Name</span> <strong id="raceNameState">n/a</strong></div>
+          <div><span>Laps</span> <strong id="raceTotalLapsState">n/a</strong></div>
         </div>
         <div class="status-row race-only">
           <div><span>Pos</span> <strong id="racePositionState">n/a</strong></div>
@@ -839,7 +864,7 @@
     </div>
   </div>
 
-  <script src="./viewer.js?v=20260701-race-countdown-timing"></script>
+  <script src="./viewer.js?v=20260710-race-info-countdown-fix1"></script>
 </body>
 
 </html>

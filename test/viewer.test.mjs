@@ -23,10 +23,13 @@ test('Race HUD markup is present in viewer.html', () => {
   const html = readProjectFile('viewer.html');
   for (const id of [
     'raceBanner',
+    'raceBannerTitle',
     'raceBannerMain',
     'raceBannerSub',
     'racePhaseState',
     'raceFlagState',
+    'raceNameState',
+    'raceTotalLapsState',
     'racePositionState',
     'raceLapState',
     'raceWsState',
@@ -34,6 +37,20 @@ test('Race HUD markup is present in viewer.html', () => {
     assert.match(html, new RegExp(`id="${id}"`));
   }
   assert.match(html, /class="debug-only race-only"/);
+});
+
+test('Race HUD displays raceInfo title and total laps', () => {
+  const html = readProjectFile('viewer.html');
+  const js = readProjectFile('viewer.js');
+  assert.match(html, /id="raceNameState"/);
+  assert.match(html, /id="raceTotalLapsState"/);
+  assert.match(js, /function getRaceInfo\(state = raceState\)/);
+  assert.match(js, /function formatRaceName\(state = raceState\)/);
+  assert.match(js, /function formatRaceTotalLaps\(state = raceState\)/);
+  assert.match(js, /\$\{self\.lap\}\/\$\{Math\.floor\(totalLaps\)\}/);
+  assert.match(js, /setText\(raceBannerTitle, raceName === 'n\/a' \? '' : raceName\)/);
+  assert.match(js, /state\.flag \|\| '',\s*formatRaceName\(state\),\s*formatRaceTotalLaps\(state\)/);
+  assert.doesNotMatch(js, /const parts = \[\];\s*const raceName = formatRaceName\(state\)/);
 });
 
 test('viewer.html cache buster matches VIEWER_BUILD_ID', () => {
