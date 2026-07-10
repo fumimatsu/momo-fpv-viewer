@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VIEWER_BUILD_ID = '20260701-race-countdown-timing';
+  const VIEWER_BUILD_ID = '20260710-race-info-countdown';
   const DEFAULT_HOST = '192.168.11.3:8080';
   const RECONNECT_BASE_DELAY_MS = 500;
   const RECONNECT_MAX_DELAY_MS = 5000;
@@ -140,10 +140,13 @@
   const modeState = document.getElementById('modeState');
   const deviceState = document.getElementById('deviceState');
   const raceBanner = document.getElementById('raceBanner');
+  const raceBannerTitle = document.getElementById('raceBannerTitle');
   const raceBannerMain = document.getElementById('raceBannerMain');
   const raceBannerSub = document.getElementById('raceBannerSub');
   const racePhaseState = document.getElementById('racePhaseState');
   const raceFlagState = document.getElementById('raceFlagState');
+  const raceNameState = document.getElementById('raceNameState');
+  const raceTotalLapsState = document.getElementById('raceTotalLapsState');
   const racePositionState = document.getElementById('racePositionState');
   const raceLapState = document.getElementById('raceLapState');
   const raceWsState = document.getElementById('raceWsState');
@@ -1145,6 +1148,29 @@
     return state.leaderboard.find((item) => item && item.carId === RACE_CAR_ID) || null;
   }
 
+  function getRaceInfo(state = raceState) {
+    if (!state || !state.raceInfo || typeof state.raceInfo !== 'object') {
+      return {};
+    }
+    return state.raceInfo;
+  }
+
+  function formatRaceName(state = raceState) {
+    const title = getRaceInfo(state).title;
+    if (typeof title === 'string' && title.trim()) {
+      return title.trim();
+    }
+    return 'n/a';
+  }
+
+  function formatRaceTotalLaps(state = raceState) {
+    const totalLaps = Number(getRaceInfo(state).totalLaps);
+    if (!Number.isFinite(totalLaps) || totalLaps <= 0) {
+      return 'n/a';
+    }
+    return String(Math.floor(totalLaps));
+  }
+
   function formatRacePosition(self) {
     if (!self || !Number.isFinite(self.position)) {
       return 'n/a';
@@ -1152,14 +1178,18 @@
     return `P${self.position}`;
   }
 
-  function formatRaceLap(self) {
+  function formatRaceLap(self, state = raceState) {
     if (!self || !Number.isFinite(self.lap)) {
       return 'n/a';
     }
+    const totalLaps = Number(getRaceInfo(state).totalLaps);
+    const lapText = Number.isFinite(totalLaps) && totalLaps > 0
+      ? `${self.lap}/${Math.floor(totalLaps)}`
+      : String(self.lap);
     if (Number.isFinite(self.lastLapMs)) {
-      return `${self.lap} ${formatMs(self.lastLapMs)}`;
+      return `${lapText} ${formatMs(self.lastLapMs)}`;
     }
-    return String(self.lap);
+    return lapText;
   }
 
   function formatMs(value) {
@@ -1231,6 +1261,10 @@
     }
     const self = getRaceSelf(state);
     const parts = [];
+    const raceName = formatRaceName(state);
+    if (raceName !== 'n/a') {
+      parts.push(raceName);
+    }
     if (state.message) {
       parts.push(String(state.message));
     }
@@ -1449,15 +1483,22 @@
     if (!RACE_MODE) {
       setText(racePhaseState, 'off');
       setText(raceFlagState, 'n/a');
+      setText(raceNameState, 'n/a');
+      setText(raceTotalLapsState, 'n/a');
       setText(racePositionState, 'n/a');
       setText(raceLapState, 'n/a');
+      setText(raceBannerTitle, '');
       return;
     }
     const self = getRaceSelf();
+    const raceName = formatRaceName();
     setText(racePhaseState, raceState?.phase || (RACE_URL_RAW ? 'waiting' : 'no url'));
     setText(raceFlagState, raceState?.flag || 'n/a');
+    setText(raceNameState, raceName);
+    setText(raceTotalLapsState, formatRaceTotalLaps());
     setText(racePositionState, formatRacePosition(self));
     setText(raceLapState, formatRaceLap(self));
+    setText(raceBannerTitle, raceName === 'n/a' ? '' : raceName);
     setText(raceBannerMain, getRaceBannerMain());
     setText(raceBannerSub, getRaceBannerSub());
     if (raceBanner) {
