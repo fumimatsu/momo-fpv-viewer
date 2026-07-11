@@ -9,6 +9,7 @@ const saveMappingEl = document.getElementById("saveMapping");
 const clearMappingEl = document.getElementById("clearMapping");
 const openViewerEl = document.getElementById("openViewer");
 const assignStatusEl = document.getElementById("assignStatus");
+const profileStatusEl = document.getElementById("profileStatus");
 const captureButtons = Array.from(document.querySelectorAll(".captureButton"));
 const languageButtons = Array.from(document.querySelectorAll(".languageButton"));
 const optionInputs = {
@@ -20,7 +21,8 @@ const optionInputs = {
   pedalDeadzone: document.getElementById("pedalDeadzone")
 };
 
-const storageKey = "fpvGamepadMapping";
+const profileApi = window.FpvGamepadProfiles;
+const legacyStorageKey = "fpvGamepadMapping";
 const languageStorageKey = "fpvGamepadLanguage";
 const axisDeadzone = 0.003;
 const recentMs = 700;
@@ -30,6 +32,9 @@ const states = new Map();
 
 let lastSeen = 0;
 let selectedGamepadIndex = null;
+let selectedProfileKey = "";
+let profileStore = profileApi.load(window.localStorage);
+let legacyMapping = null;
 let currentLanguage = loadLanguage();
 
 const translations = {
@@ -84,6 +89,10 @@ const translations = {
     paddleLeft: "Paddle L",
     paddleRight: "Paddle R",
     savedForViewer: "saved for Viewer",
+    selectedDevice: "Selected device",
+    selectDevice: "Use this device",
+    profileLoaded: "profile loaded",
+    profileNew: "new profile",
     savedMappingCleared: "saved mapping cleared",
     gamepads: "gamepad(s)",
     lastSeen: "last seen",
@@ -141,6 +150,10 @@ const translations = {
     paddleLeft: "左パドル",
     paddleRight: "右パドル",
     savedForViewer: "Viewer 用に保存しました",
+    selectedDevice: "設定対象",
+    selectDevice: "このデバイスを設定",
+    profileLoaded: "保存済みプロファイルを読込",
+    profileNew: "新規プロファイル",
     savedMappingCleared: "保存した設定を削除しました",
     gamepads: "gamepad",
     lastSeen: "最終認識",
@@ -149,34 +162,41 @@ const translations = {
   }
 };
 
-const mapping = {
-  id: "",
-  index: 0,
-  steeringAxis: null,
-  steeringInvert: false,
-  steeringGain: 1.0,
-  steeringDeadzone: 0.03,
-  steeringCenter: 0,
-  steeringLeft: -1,
-  steeringRight: 1,
-  throttleAxis: null,
-  throttleButton: null,
-  throttleInvert: false,
-  throttleIdle: 1,
-  throttlePressed: -1,
-  throttleMin: 1500,
-  throttleMax: 2000,
-  brakeAxis: null,
-  brakeButton: null,
-  brakeInvert: false,
-  brakeIdle: 1,
-  brakePressed: -1,
-  pedalDeadzone: 0.05,
-  reverseMin: 1300,
-  driveButton: null,
-  paddleLeftButton: null,
-  paddleRightButton: null
-};
+function createDefaultMapping() {
+  return {
+    id: "",
+    index: 0,
+    profileKey: "",
+    vendorId: "",
+    productId: "",
+    steeringAxis: null,
+    steeringInvert: false,
+    steeringGain: 1.0,
+    steeringDeadzone: 0.03,
+    steeringCenter: 0,
+    steeringLeft: -1,
+    steeringRight: 1,
+    throttleAxis: null,
+    throttleButton: null,
+    throttleInvert: false,
+    throttleIdle: 1,
+    throttlePressed: -1,
+    throttleMin: 1500,
+    throttleMax: 2000,
+    brakeAxis: null,
+    brakeButton: null,
+    brakeInvert: false,
+    brakeIdle: 1,
+    brakePressed: -1,
+    pedalDeadzone: 0.05,
+    reverseMin: 1300,
+    driveButton: null,
+    paddleLeftButton: null,
+    paddleRightButton: null
+  };
+}
+
+const mapping = createDefaultMapping();
 
 function loadLanguage() {
   const saved = window.localStorage?.getItem(languageStorageKey);
@@ -230,19 +250,55 @@ function buttonPercent(value) {
 
 function loadSavedMapping() {
   try {
-    const raw = window.localStorage?.getItem(storageKey);
-    if (!raw) {
-      return;
+    const raw = window.localStorage?.getItem(legacyStorageKey);
+    if (raw) {
+      const saved = JSON.parse(raw);
+      if (saved && typeof saved === "object") {
+        legacyMapping = { ...saved };
+      }
     }
-    const saved = JSON.parse(raw);
-    if (!saved || typeof saved !== "object") {
-      return;
-    }
-    Object.assign(mapping, saved);
+    const active = profileStore.profiles[profileStore.activeProfileKey];
+    Object.assign(mapping, active || legacyMapping || {});
     migrateSavedMapping();
   } catch (error) {
     console.warn("load saved mapping failed", error);
   }
+}
+
+function legacyMappingMatches(identity) {
+  if (!legacyMapping) {
+    return false;
+  }
+  if (!legacyMapping.id) {
+    return Object.keys(profileStore.profiles).length === 0;
+  }
+  return profileApi.parseGamepadIdentity(legacyMapping.id).key === identity.key;
+}
+
+function selectGamepad(gamepad, force = false) {
+  if (!gamepad) {
+    return;
+  }
+  const identity = profileApi.parseGamepadIdentity(gamepad.id);
+  if (!force && selectedGamepadIndex === gamepad.index && selectedProfileKey === identity.key) {
+    return;
+  }
+
+  const saved = profileStore.profiles[identity.key];
+  const source = saved || (legacyMappingMatches(identity) ? legacyMapping : null);
+  Object.assign(mapping, createDefaultMapping(), source || {}, {
+    id: gamepad.id || "",
+    index: gamepad.index,
+    profileKey: identity.key,
+    vendorId: identity.vendorId,
+    productId: identity.productId
+  });
+  selectedGamepadIndex = gamepad.index;
+  selectedProfileKey = identity.key;
+  migrateSavedMapping();
+  syncOptionsFromMapping();
+  profileStatusEl.textContent = `${identity.label} / ${saved ? t("profileLoaded") : t("profileNew")}`;
+  updateMappingOutput();
 }
 
 function hasSteeringCalibration(value = mapping) {
@@ -290,6 +346,9 @@ function buildViewerUrl() {
   const params = new URLSearchParams(url.hash.replace(/^#\??/, ""));
   params.set("gamepad", "1");
   params.set("gamepadIndex", String(mapping.index ?? 0));
+  if (selectedProfileKey) {
+    params.set("gamepadProfile", selectedProfileKey);
+  }
   if (mapping.steeringAxis !== null) {
     params.set("gamepadSteeringAxis", String(mapping.steeringAxis));
   }
@@ -470,16 +529,29 @@ function makeActions(type, index) {
 function renderGamepad(gamepad) {
   const now = performance.now();
   const state = updateState(gamepad);
+  const identity = profileApi.parseGamepadIdentity(gamepad.id);
+  const isSelected = gamepad.index === selectedGamepadIndex;
   const pad = document.createElement("section");
-  pad.className = "pad";
+  pad.className = `pad${isSelected ? " selected" : ""}`;
+
+  const heading = document.createElement("div");
+  heading.className = "pad-heading";
 
   const title = document.createElement("h2");
   title.textContent = `#${gamepad.index} ${gamepad.id || t("unknownGamepad")}`;
-  pad.appendChild(title);
+  const selectButton = document.createElement("button");
+  selectButton.type = "button";
+  selectButton.className = `select-gamepad${isSelected ? " active" : ""}`;
+  selectButton.dataset.selectGamepad = String(gamepad.index);
+  selectButton.textContent = isSelected ? t("selectedDevice") : t("selectDevice");
+  selectButton.disabled = isSelected;
+  heading.append(title, selectButton);
+  pad.appendChild(heading);
 
   const meta = document.createElement("div");
   meta.className = "meta";
   meta.textContent = [
+    identity.label,
     `connected=${gamepad.connected}`,
     `mapping=${gamepad.mapping || "none"}`,
     `axes=${gamepad.axes.length}`,
@@ -501,7 +573,9 @@ function renderGamepad(gamepad) {
       false,
       recent
     ));
-    pad.appendChild(makeActions("axis", index));
+    if (isSelected) {
+      pad.appendChild(makeActions("axis", index));
+    }
   });
 
   state.buttons.forEach((button, index) => {
@@ -516,7 +590,9 @@ function renderGamepad(gamepad) {
       button.pressed,
       recent
     ));
-    pad.appendChild(makeActions("button", index));
+    if (isSelected) {
+      pad.appendChild(makeActions("button", index));
+    }
   });
 
   return pad;
@@ -566,13 +642,40 @@ function assignInput(field, index) {
 
 function saveMapping() {
   syncMappingFromOptions();
-  window.localStorage?.setItem(storageKey, JSON.stringify(mapping));
+  const gamepad = getSelectedGamepad();
+  if (gamepad) {
+    const identity = profileApi.parseGamepadIdentity(gamepad.id);
+    selectedProfileKey = identity.key;
+    Object.assign(mapping, {
+      id: gamepad.id || "",
+      index: gamepad.index,
+      profileKey: identity.key,
+      vendorId: identity.vendorId,
+      productId: identity.productId
+    });
+    profileStore = profileApi.saveProfile(
+      window.localStorage,
+      profileStore,
+      identity.key,
+      mapping
+    );
+    profileStatusEl.textContent = `${identity.label} / ${t("profileLoaded")}`;
+  }
+  window.localStorage?.setItem(legacyStorageKey, JSON.stringify(mapping));
   updateMappingOutput();
   assignStatusEl.textContent = t("savedForViewer");
 }
 
 function clearSavedMapping() {
-  window.localStorage?.removeItem(storageKey);
+  if (selectedProfileKey) {
+    profileStore = profileApi.removeProfile(window.localStorage, profileStore, selectedProfileKey);
+  }
+  window.localStorage?.removeItem(legacyStorageKey);
+  const gamepad = getSelectedGamepad();
+  if (gamepad) {
+    legacyMapping = null;
+    selectGamepad(gamepad, true);
+  }
   assignStatusEl.textContent = t("savedMappingCleared");
 }
 
@@ -728,9 +831,7 @@ function render() {
   } else {
     lastSeen = performance.now();
     if (selectedGamepadIndex === null || !gamepads.some((gamepad) => gamepad.index === selectedGamepadIndex)) {
-      selectedGamepadIndex = gamepads[0].index;
-      mapping.id = gamepads[0].id || "";
-      mapping.index = gamepads[0].index;
+      selectGamepad(gamepads[0]);
     }
     for (const gamepad of gamepads) {
       padsEl.appendChild(renderGamepad(gamepad));
@@ -747,17 +848,29 @@ function render() {
 
 window.addEventListener("gamepadconnected", (event) => {
   lastSeen = performance.now();
-  selectedGamepadIndex = event.gamepad.index;
-  mapping.id = event.gamepad.id || "";
-  mapping.index = event.gamepad.index;
+  if (selectedGamepadIndex === null) {
+    selectGamepad(event.gamepad);
+  }
   console.log("gamepadconnected", event.gamepad);
 });
 
 window.addEventListener("gamepaddisconnected", (event) => {
+  if (selectedGamepadIndex === event.gamepad.index) {
+    selectedGamepadIndex = null;
+    selectedProfileKey = "";
+  }
   console.log("gamepaddisconnected", event.gamepad);
 });
 
 padsEl.addEventListener("pointerdown", (event) => {
+  const selectButton = event.target.closest("button[data-select-gamepad]");
+  if (selectButton) {
+    event.preventDefault();
+    const gamepads = navigator.getGamepads ? Array.from(navigator.getGamepads()).filter(Boolean) : [];
+    const gamepad = gamepads.find((candidate) => candidate.index === Number(selectButton.dataset.selectGamepad));
+    selectGamepad(gamepad);
+    return;
+  }
   const button = event.target.closest("button[data-field][data-index]");
   if (!button) {
     return;

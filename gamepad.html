@@ -154,6 +154,12 @@
       min-height: 18px;
     }
 
+    .profile-status {
+      color: #d6e2f0;
+      font-family: Consolas, monospace;
+      font-size: 13px;
+    }
+
     .grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
@@ -167,9 +173,28 @@
       background: #171b20;
     }
 
+    .pad.selected {
+      border-color: #7adf8f;
+      box-shadow: 0 0 0 1px #7adf8f inset;
+    }
+
+    .pad-heading {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
     .pad h2 {
-      margin: 0 0 10px;
+      margin: 0;
       font-size: 16px;
+    }
+
+    .select-gamepad.active {
+      border-color: #7adf8f;
+      background: #1d3b29;
+      cursor: default;
     }
 
     .meta {
@@ -301,6 +326,7 @@
     <button id="saveMapping" type="button" data-i18n="saveMapping">Save for Viewer</button>
     <button id="clearMapping" type="button" data-i18n="clearMapping">Clear saved</button>
     <a id="openViewer" class="viewer-link" href="./viewer.html" target="_blank" rel="noreferrer" data-i18n="openViewer">Open Viewer</a>
+    <div id="profileStatus" class="profile-status"></div>
     <div id="assignStatus" class="assign-status"></div>
   </div>
   <div class="toolbar mapping-options">
@@ -325,6 +351,7 @@
     <h2 data-i18n="generatedMapping">Generated mapping</h2>
     <pre id="mappingOutput">{}</pre>
   </section>
-  <script src="./gamepad.js"></script>
+  <script src="./gamepad-profile.js?v=20260711-gamepad-profiles"></script>
+  <script src="./gamepad.js?v=20260711-gamepad-profiles"></script>
 </body>
 </html>

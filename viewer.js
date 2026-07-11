@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VIEWER_BUILD_ID = '20260710-telemetry-v1';
+  const VIEWER_BUILD_ID = '20260711-gamepad-profiles';
   const DEFAULT_HOST = '192.168.11.3:8080';
   const RECONNECT_BASE_DELAY_MS = 500;
   const RECONNECT_MAX_DELAY_MS = 5000;
@@ -20,7 +20,7 @@
   const RC_BRAKE_VALUE = getNumberParam('rcBrakeValue', 1300);
   const RC_BRAKE_DURATION_MS = getNumberParam('rcBrakeMs', 1000);
   const RC_BRAKE_THRESHOLD = getNumberParam('rcBrakeThreshold', 1700);
-  const RC_THROTTLE_GEAR_MIN_VALUES = [1400, 1400, 1300, 1300, 1300];
+  const RC_THROTTLE_GEAR_MIN_VALUES = [1400, 1350, 1200, 1100, 1000];
   const RC_THROTTLE_GEAR_MAX_VALUES = [1600, 1650, 1800, 1900, 2000];
   const RC_INITIAL_GEAR = Math.max(1, Math.min(5, getIntegerParam('rcGear', 1)));
   const RC_STEERING_NEUTRAL_DEADBAND_US = getNumberParamAllowZero('rcSteeringNeutralDeadband', 10);
@@ -101,6 +101,7 @@
   const RACE_URL_RAW = getStringParam(['raceUrl', 'raceWs'], '');
   const RACE_TOKEN = getStringParam(['raceToken', 'viewerToken'], '');
   const RACE_CAR_ID = getStringParam(['carId', 'raceCarId'], getStringParam(['id'], ''));
+  const RACE_AUTO_CONNECT = getBooleanParam('raceConnect', getBooleanParam('raceAutoConnect', RACE_MODE));
   const RACE_RECONNECT_BASE_MS = getNumberParam('raceReconnectMs', 1000);
   const RACE_RECONNECT_MAX_MS = getNumberParam('raceReconnectMaxMs', 10000);
   const RACE_BANNER_TRANSIENT_MS = getNumberParam('raceBannerMs', 4000);
@@ -157,6 +158,7 @@
   const btnFlip = document.getElementById('btnFlip');
   const btnMirror = document.getElementById('btnMirror');
   const btnSwapControls = document.getElementById('btnSwapControls');
+  const btnRaceConnect = document.getElementById('btnRaceConnect');
   const btnAudio = document.getElementById('btnAudio');
   const btnAudioFilter = document.getElementById('btnAudioFilter');
   const btnMic = document.getElementById('btnMic');
@@ -287,7 +289,7 @@
   let raceState = null;
   let raceReconnectTimer = null;
   let raceReconnectAttempt = 0;
-  let raceReconnectEnabled = RACE_MODE;
+  let raceReconnectEnabled = RACE_MODE && RACE_AUTO_CONNECT;
   let lastRaceMessageAt = 0;
   let lastRaceBannerEventKey = '';
   let raceBannerVisibleUntil = 0;
@@ -318,12 +320,72 @@
 
   function loadGamepadProfile() {
     try {
-      const raw = window.localStorage?.getItem(GAMEPAD_PROFILE_STORAGE_KEY);
-      if (!raw) {
-        return {};
+      const legacyRaw = window.localStorage?.getItem(GAMEPAD_PROFILE_STORAGE_KEY);
+      const legacyProfile = legacyRaw ? JSON.parse(legacyRaw) : {};
+      const profileApi = window.FpvGamepadProfiles;
+      if (!profileApi) {
+        return legacyProfile && typeof legacyProfile === 'object' ? legacyProfile : {};
       }
-      const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === 'object' ? parsed : {};
+
+      const store = profileApi.load(window.localStorage);
+      const params = getUrlParams();
+      const requestedKey = params.get('gamepadProfile') || '';
+      const requestedIndex = params.has('gamepadIndex')
+        ? Math.trunc(Number(params.get('gamepadIndex')))
+        : null;
+      const gamepads = navigator.getGamepads
+        ? Array.from(navigator.getGamepads()).filter(Boolean)
+        : [];
+
+      const resolveProfile = (profileKey, gamepad = null) => {
+        const profile = store.profiles[profileKey];
+        if (!profile) {
+          return null;
+        }
+        return {
+          ...profile,
+          profileKey,
+          index: gamepad ? gamepad.index : profile.index,
+        };
+      };
+      const gamepadForKey = (profileKey) => gamepads.find(
+        (gamepad) => profileApi.parseGamepadIdentity(gamepad.id).key === profileKey,
+      );
+
+      if (requestedKey) {
+        const requestedProfile = resolveProfile(requestedKey, gamepadForKey(requestedKey));
+        if (requestedProfile) {
+          return requestedProfile;
+        }
+      }
+
+      if (Number.isFinite(requestedIndex)) {
+        const requestedGamepad = gamepads.find((gamepad) => gamepad.index === requestedIndex);
+        if (requestedGamepad) {
+          const profileKey = profileApi.parseGamepadIdentity(requestedGamepad.id).key;
+          const requestedProfile = resolveProfile(profileKey, requestedGamepad);
+          if (requestedProfile) {
+            return requestedProfile;
+          }
+        }
+      }
+
+      for (const gamepad of gamepads) {
+        const profileKey = profileApi.parseGamepadIdentity(gamepad.id).key;
+        const connectedProfile = resolveProfile(profileKey, gamepad);
+        if (connectedProfile) {
+          return connectedProfile;
+        }
+      }
+
+      if (gamepads.length === 0 && store.activeProfileKey) {
+        const activeProfile = resolveProfile(store.activeProfileKey);
+        if (activeProfile) {
+          return activeProfile;
+        }
+      }
+
+      return legacyProfile && typeof legacyProfile === 'object' ? legacyProfile : {};
     } catch (_) {
       return {};
     }
@@ -1118,6 +1180,38 @@
     return raceWs ? ['connecting', 'open', 'closing', 'closed'][raceWs.readyState] : 'closed';
   }
 
+  function isRaceControlConnected() {
+    return !!raceWs && (raceWs.readyState === WebSocket.CONNECTING || raceWs.readyState === WebSocket.OPEN);
+  }
+
+  function updateRaceConnectButton() {
+    if (!btnRaceConnect) {
+      return;
+    }
+    const status = getRaceWsStatus();
+    const connected = isRaceControlConnected();
+    btnRaceConnect.disabled = !RACE_MODE || !RACE_URL_RAW;
+    btnRaceConnect.textContent = connected
+      ? status === 'connecting' ? 'Race Connecting' : 'Race Disconnect'
+      : 'Race Connect';
+    btnRaceConnect.setAttribute('aria-pressed', connected ? 'true' : 'false');
+    btnRaceConnect.title = !RACE_MODE
+      ? 'Race Control is disabled.'
+      : !RACE_URL_RAW
+        ? 'Set raceUrl to enable Race Control.'
+        : connected
+          ? 'Close Race Control WebSocket and stop race timers/state.'
+          : 'Open Race Control WebSocket.';
+  }
+
+  function toggleRaceControlConnection() {
+    if (isRaceControlConnected()) {
+      closeRaceControl();
+      return;
+    }
+    connectRaceControl();
+  }
+
   function normalizeRaceControlUrl() {
     if (!RACE_URL_RAW) {
       return '';
@@ -1485,6 +1579,7 @@
   function updateRaceUi() {
     document.body.classList.toggle('race-mode', RACE_MODE);
     setText(raceWsState, getRaceWsStatus());
+    updateRaceConnectButton();
     if (!RACE_MODE) {
       setText(racePhaseState, 'off');
       setText(raceFlagState, 'n/a');
@@ -1548,10 +1643,14 @@
       }
     }
     raceWs = null;
+    raceState = null;
+    lastRaceMessageAt = 0;
     raceBannerVisibleUntil = 0;
     lastRaceBannerEventKey = '';
+    lastRaceSoundKey = '';
     clearRaceBannerHideTimer();
     clearRaceCountdownTimer();
+    recordEvent('race closed', 'manual');
     updateRaceUi();
   }
 
@@ -4205,6 +4304,7 @@
   btnFlip.addEventListener('click', toggleVideoFlip);
   btnMirror.addEventListener('click', toggleVideoMirror);
   btnSwapControls.addEventListener('click', toggleControlsSwapped);
+  btnRaceConnect?.addEventListener('click', toggleRaceControlConnection);
   applyMediaControlsVisibility();
   if (MEDIA_CONTROLS_VISIBLE) {
     btnAudio.addEventListener('click', toggleAudio);
@@ -4314,9 +4414,11 @@
         : { available: false },
       race: {
         enabled: RACE_MODE,
+        autoConnect: RACE_AUTO_CONNECT,
         url: normalizeRaceControlUrl(),
         carId: RACE_CAR_ID,
         ws: getRaceWsStatus(),
+        reconnectEnabled: raceReconnectEnabled,
         soundEnabled: RACE_SOUND_ENABLED,
         soundUnlocked: raceSoundUnlocked,
         audioContextState: raceAudioContext?.state || 'none',
@@ -4359,7 +4461,12 @@
   startRoomLockStatusMonitor();
   startGamepadPoller();
   updateGearUi();
-  connectRaceControl();
+  if (RACE_AUTO_CONNECT) {
+    connectRaceControl();
+  } else {
+    recordEvent('race manual connect');
+    updateRaceUi();
+  }
   startTelemetryMock();
   if (AUTO_START) {
     connect().catch((error) => {

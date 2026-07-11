@@ -6,6 +6,9 @@
 
 - `viewer.html`
 - `viewer.js`
+- `gamepad.html`
+- `gamepad.js`
+- `gamepad-profile.js`
 - `start-viewer.ps1`
 - `start-viewer.bat`
 - `start-viewer.sh`
@@ -20,7 +23,13 @@ Node.js 22 以降で実行します。
 npm test
 ```
 
-テストでは `viewer.js` / `gamepad.js` / `monitor.js` の構文、Race HUD の DOM 組み込み、`viewer.html` の cache buster、Race Control WebSocket の `raceToken` 転送、`autoStart=0` と Race 表示の独立性を確認します。
+テストでは `viewer.js` / `gamepad.js` / `gamepad-profile.js` / `monitor.js` の構文、VID/PID ごとの Gamepad profile、Race HUD の DOM 組み込み、`viewer.html` の cache buster、Race Control WebSocket の `raceToken` 転送、`autoStart=0` と Race 表示の独立性を確認します。
+
+## Gamepad profile
+
+`gamepad.html` で保存した割り当てと中立値は、Gamepad ID から取得した VID/PID ごとに `localStorage` へ保存します。同じメーカーの別機種を区別するため、VID だけではなく PID も保存キーに含めます。ブラウザが VID/PID を公開しない場合は Gamepad ID 全体を使用します。
+
+複数台を同時に接続した場合は、各デバイスの「このデバイスを設定」を押してから割り当てとキャリブレーションを行います。「Viewer 用に保存」で選択中デバイスの profile だけを更新します。
 
 ## Windows
 

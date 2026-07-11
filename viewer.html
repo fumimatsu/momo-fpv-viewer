@@ -767,6 +767,7 @@
         <button id="btnFlip" type="button">Flip</button>
         <button id="btnMirror" type="button">Mirror</button>
         <button id="btnSwapControls" type="button">Swap</button>
+        <button id="btnRaceConnect" class="race-only" type="button" aria-pressed="false">Race Connect</button>
         <button id="btnAudioFilter" type="button">Filter</button>
         <button id="btnDebug" type="button">Debug</button>
         <span class="debug-controls">
@@ -843,7 +844,7 @@
 
         <div class="rc-axis rc-axis-throttle">
           <label for="throttle">Throttle</label>
-          <input id="throttle" type="range" min="1300" max="2000" step="1" value="1500">
+          <input id="throttle" type="range" min="1000" max="2000" step="1" value="1500">
           <output id="throttleValue" for="throttle">1500</output>
         </div>
       </div>
@@ -864,8 +865,9 @@
     </div>
   </div>
 
-  <script src="./telemetry.js?v=20260710-telemetry-v1"></script>
-  <script src="./viewer.js?v=20260710-telemetry-v1"></script>
+  <script src="./gamepad-profile.js?v=20260711-gamepad-profiles"></script>
+  <script src="./telemetry.js?v=20260711-gamepad-profiles"></script>
+  <script src="./viewer.js?v=20260711-gamepad-profiles"></script>
 </body>
 
 </html>

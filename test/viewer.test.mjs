@@ -12,7 +12,7 @@ function readProjectFile(path) {
 }
 
 test('viewer JavaScript files parse', () => {
-  for (const file of ['viewer.js', 'telemetry.js', 'gamepad.js', 'monitor.js']) {
+  for (const file of ['viewer.js', 'telemetry.js', 'gamepad-profile.js', 'gamepad.js', 'monitor.js']) {
     execFileSync(process.execPath, ['--check', join(rootDir, file)], {
       stdio: 'pipe',
     });
@@ -60,6 +60,7 @@ test('viewer.html cache buster matches VIEWER_BUILD_ID', () => {
   assert.ok(buildMatch, 'VIEWER_BUILD_ID is missing');
   assert.match(html, new RegExp(`viewer\\.js\\?v=${buildMatch[1]}`));
   assert.match(html, new RegExp(`telemetry\\.js\\?v=${buildMatch[1]}`));
+  assert.match(html, new RegExp(`gamepad-profile\\.js\\?v=${buildMatch[1]}`));
 });
 
 test('Telemetry parser is loaded before the Viewer and exposed in diagnostics', () => {
@@ -100,6 +101,20 @@ test('Race diagnostics are exposed for manual debugging', () => {
   assert.match(js, /closeRaceControl,/);
   assert.match(js, /race: \{/);
   assert.match(js, /lastMessageAgeMs/);
+});
+
+test('Race Control WebSocket can be manually connected from the Viewer', () => {
+  const html = readProjectFile('viewer.html');
+  const js = readProjectFile('viewer.js');
+  assert.match(html, /id="btnRaceConnect"/);
+  assert.match(js, /const RACE_AUTO_CONNECT = getBooleanParam\('raceConnect'/);
+  assert.match(js, /function toggleRaceControlConnection\(\)/);
+  assert.match(js, /btnRaceConnect\?\.addEventListener\('click', toggleRaceControlConnection\)/);
+  assert.match(js, /if \(RACE_AUTO_CONNECT\) \{\s*connectRaceControl\(\);/);
+  assert.match(js, /recordEvent\('race manual connect'\)/);
+  assert.match(js, /raceState = null;/);
+  assert.match(js, /clearRaceCountdownTimer\(\)/);
+  assert.match(js, /autoConnect: RACE_AUTO_CONNECT/);
 });
 
 test('Race banner auto-hides during normal green running', () => {
@@ -149,4 +164,26 @@ test('RC control positions can be swapped from URL and UI', () => {
   assert.match(js, /function setControlsSwapped\(enabled\)/);
   assert.match(js, /btnSwapControls\.addEventListener\('click', toggleControlsSwapped\)/);
   assert.match(js, /setControlsSwapped\(isControlsSwappedByDefault\(\)\)/);
+});
+
+test('Throttle back range expands by gear', () => {
+  const html = readProjectFile('viewer.html');
+  const js = readProjectFile('viewer.js');
+  assert.match(js, /const RC_THROTTLE_GEAR_MIN_VALUES = \[1400, 1350, 1200, 1100, 1000\]/);
+  assert.match(js, /const RC_THROTTLE_GEAR_MAX_VALUES = \[1600, 1650, 1800, 1900, 2000\]/);
+  assert.match(html, /id="throttle" type="range" min="1000" max="2000"/);
+});
+
+test('Gamepad mappings are stored and selected per VID and PID profile', () => {
+  const gamepadHtml = readProjectFile('gamepad.html');
+  const gamepadJs = readProjectFile('gamepad.js');
+  const viewerHtml = readProjectFile('viewer.html');
+  const viewerJs = readProjectFile('viewer.js');
+  assert.ok(gamepadHtml.indexOf('gamepad-profile.js') < gamepadHtml.indexOf('gamepad.js'));
+  assert.ok(viewerHtml.indexOf('gamepad-profile.js') < viewerHtml.indexOf('viewer.js'));
+  assert.match(gamepadJs, /profileApi\.saveProfile\(/);
+  assert.match(gamepadJs, /data-select-gamepad/);
+  assert.match(gamepadJs, /params\.set\("gamepadProfile", selectedProfileKey\)/);
+  assert.match(viewerJs, /params\.get\('gamepadProfile'\)/);
+  assert.match(viewerJs, /profileApi\.parseGamepadIdentity\(gamepad\.id\)/);
 });
