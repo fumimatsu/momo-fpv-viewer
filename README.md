@@ -401,6 +401,8 @@ https://fumimatsu.github.io/momo-fpv-viewer/viewer.html?signaling=ayame&roomId=<
 
 ## Telemetry v1 diagnostics
 
+MOZA R3 を基準にした Windows FFB bridge の責務、Pit House の設定範囲、DirectInput による段階的な実機試験は [docs/ffb-r3-initial-test.md](docs/ffb-r3-initial-test.md) に整理しています。FFB はブラウザではなく、Viewer PC 上のネイティブ bridge が出力します。
+
 `TEL:` + compact JSONのv1 telemetryを受信すると、Viewerはstate/eventを分離し、source/boot単位で
 sequence gap、duplicate、out-of-order、timestamp regression、staleを追跡します。未知versionと
 invalid payloadは現在stateへ適用しません。legacyの`TEL:alive ...`表示は移行中も維持します。
