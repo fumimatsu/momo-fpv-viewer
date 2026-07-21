@@ -44,6 +44,8 @@ internal sealed record BridgeConfig(
             }
         }
 
+        LoadAllowedOriginsFromFile(allowedOrigins);
+
         maxOutput = Math.Clamp(maxOutput, 0.02, 1.0);
         return new BridgeConfig(host, port, maxOutput, backend, allowedOrigins);
     }
@@ -69,5 +71,18 @@ internal sealed record BridgeConfig(
             "moza-directinput" => "moza-directinput",
             _ => "directinput"
         };
+    }
+
+    private static void LoadAllowedOriginsFromFile(HashSet<string> allowedOrigins)
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "allowed-origins.txt");
+        if (!File.Exists(path)) return;
+
+        foreach (var line in File.ReadLines(path))
+        {
+            var origin = line.Trim();
+            if (origin.Length == 0 || origin.StartsWith('#')) continue;
+            allowedOrigins.Add(origin.TrimEnd('/'));
+        }
     }
 }

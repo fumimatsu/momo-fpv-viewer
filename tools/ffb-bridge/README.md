@@ -46,3 +46,14 @@ Relay Variant では、Relay Viewer をこの Viewer 正本から同期してか
 - `--allow-origin <exact-origin>`: 非 localhost Viewer を 1 つだけ許可する。複数指定できる。
 
 Bridge は `127.0.0.1` にのみ bind し、外部 PC からの接続を受けない。
+
+## 配置先での許可オリジン設定
+
+公開済みの Bridge を起動引数なしで運用する場合は、実行ファイルと同じフォルダーに
+`allowed-origins.txt` を置く。1 行につき 1 つの正確な Viewer origin を記載する。
+
+```text
+http://192.168.11.104:8090
+```
+
+空行と `#` から始まる行は無視する。`*` や LAN 全体を許可する設定は使わない。
