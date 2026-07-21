@@ -1,0 +1,1185 @@
+<!doctype html>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#050608">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Momo FPV">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png">
+  <title>Momo FPV Viewer</title>
+  <style>
+    :root {
+      --osd-scale: 1;
+      --drive-hud-bottom: 20px;
+      color-scheme: dark;
+      font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+      background: #050608;
+      color: #f4f7fb;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #050608;
+    }
+
+    #remote_video {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      /* 16:9 では全体表示のまま、ウルトラワイドでは上下を中央基準で
+         切り抜く。映像の縦横比は常に維持する。 */
+      object-fit: cover;
+      background: #050608;
+      transform-origin: center center;
+      transform: rotate(var(--video-rotate, 0deg)) scaleX(var(--video-scale-x, 1));
+    }
+
+    body.flip-video #remote_video {
+      --video-rotate: 180deg;
+    }
+
+    body.mirror-video #remote_video {
+      --video-scale-x: -1;
+    }
+
+    .race-hud {
+      position: fixed;
+      inset: 0;
+      z-index: 2;
+      color: #f7fbff;
+      font-family: Impact, "Arial Narrow", sans-serif;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.04em;
+      pointer-events: none;
+      text-shadow: 0 2px 2px #000000, 0 0 8px rgba(0, 0, 0, 0.82);
+    }
+
+    .race-card {
+      border: 1px solid rgba(255, 255, 255, 0.46);
+      background: linear-gradient(112deg, rgba(3, 11, 21, 0.88), rgba(10, 25, 43, 0.52));
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+      clip-path: polygon(0 0, 100% 0, calc(100% - 13px) 100%, 0 100%);
+      backdrop-filter: blur(3px);
+    }
+
+    .race-label {
+      display: block;
+      color: #a9c5dd;
+      font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+    }
+
+    .race-summary {
+      position: fixed;
+      top: calc(94px + env(safe-area-inset-top));
+      left: calc(16px + env(safe-area-inset-left));
+      width: min(248px, calc(100vw - 32px));
+      padding: 11px 14px 10px;
+      transform: scale(var(--osd-scale));
+      transform-origin: top left;
+    }
+
+    .race-summary-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 9px;
+    }
+
+    .race-phase {
+      color: #67e9ff;
+      font-size: 20px;
+      font-style: italic;
+      line-height: 1;
+    }
+
+    .race-lap-count {
+      color: #ffffff;
+      font-size: 15px;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .race-time-grid {
+      display: grid;
+      gap: 6px;
+    }
+
+    .race-time-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: baseline;
+      gap: 8px;
+    }
+
+    .race-time-row strong {
+      color: #ffffff;
+      font-size: 19px;
+      font-weight: 400;
+      line-height: 1;
+    }
+
+    .race-time-row.best strong {
+      color: #fbd64a;
+    }
+
+    .race-total {
+      position: fixed;
+      top: calc(16px + env(safe-area-inset-top));
+      left: 50%;
+      min-width: 268px;
+      padding: 9px 18px 11px;
+      transform: translateX(-50%) scale(var(--osd-scale));
+      transform-origin: top center;
+      text-align: center;
+    }
+
+    .race-total .race-label {
+      margin-bottom: 2px;
+    }
+
+    .race-total-time {
+      color: #ffffff;
+      font-size: clamp(30px, 4vw, 49px);
+      font-style: italic;
+      line-height: 0.94;
+      white-space: nowrap;
+    }
+
+    .race-position {
+      position: fixed;
+      top: calc(68px + env(safe-area-inset-top));
+      right: calc(16px + env(safe-area-inset-right));
+      min-width: 148px;
+      padding: 8px 12px 9px;
+      text-align: right;
+      transform: scale(var(--osd-scale));
+      transform-origin: top right;
+    }
+
+    .race-position-value {
+      color: #ffffff;
+      font-size: clamp(34px, 4vw, 56px);
+      font-style: italic;
+      line-height: 0.85;
+    }
+
+    .race-position-value em {
+      color: #a9c5dd;
+      font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+      font-size: 16px;
+      font-style: normal;
+      vertical-align: 0.4em;
+    }
+
+    .race-history {
+      position: fixed;
+      right: calc(16px + env(safe-area-inset-right));
+      bottom: calc(150px + env(safe-area-inset-bottom));
+      width: min(214px, calc(100vw - 32px));
+      padding: 9px 11px 10px;
+      transform: scale(var(--osd-scale));
+      transform-origin: bottom right;
+      pointer-events: auto;
+    }
+
+    .race-history ol {
+      display: grid;
+      gap: 4px;
+      margin: 7px 0 0;
+      max-height: 98px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding: 0 4px 0 0;
+      list-style: none;
+      touch-action: pan-y;
+    }
+
+    .race-history li {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      padding-top: 4px;
+      border-top: 1px solid rgba(255, 255, 255, 0.14);
+      color: #dceaf6;
+      font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+      font-size: 12px;
+    }
+
+    .race-history li.is-best {
+      color: #fbd64a;
+    }
+
+    .race-history li.is-empty {
+      display: block;
+      color: #8aa2b8;
+    }
+
+    .hud {
+      position: fixed;
+      inset: auto calc(16px + env(safe-area-inset-right)) calc(14px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+      pointer-events: none;
+    }
+
+    .panel {
+      display: grid;
+      grid-template-columns: minmax(230px, 34vw) auto minmax(110px, 15vw);
+      grid-template-areas:
+        "steering actions throttle"
+        "steering actions throttle";
+      gap: 12px;
+      align-items: end;
+      width: 100%;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      pointer-events: auto;
+    }
+
+    .status {
+      position: fixed;
+      top: calc(16px + env(safe-area-inset-top));
+      left: calc(16px + env(safe-area-inset-left));
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 3px;
+      min-width: 0;
+      font-size: 18px;
+      line-height: 1.1;
+      letter-spacing: 0;
+      color: #ffffff;
+      text-shadow:
+        0 0 2px #000000,
+        1px 1px 2px #000000,
+        -1px -1px 2px #000000;
+      pointer-events: none;
+    }
+
+    .status span {
+      color: #ffffff;
+    }
+
+    .status-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 18px;
+      align-items: baseline;
+    }
+
+    .status-row > div {
+      white-space: nowrap;
+    }
+
+    .status .debug-only {
+      display: none;
+    }
+
+    body.debug-osd .status .debug-only {
+      display: block;
+    }
+
+    .status strong {
+      display: inline-block;
+      min-width: 96px;
+      color: #ffffff;
+      font-weight: 700;
+    }
+
+    .control {
+      display: contents;
+      font-size: 18px;
+      text-shadow:
+        0 0 2px #000000,
+        1px 1px 2px #000000;
+    }
+
+    .rc-axis {
+      display: grid;
+      gap: 8px;
+      align-items: center;
+      color: #ffffff;
+      opacity: 0.64;
+      touch-action: none;
+      user-select: none;
+    }
+
+    .rc-axis label {
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .rc-axis output {
+      min-width: 60px;
+      font-weight: 700;
+      text-align: right;
+    }
+
+    .rc-axis-steering {
+      grid-area: steering;
+      grid-template-columns: 1fr auto;
+      grid-template-areas:
+        "label value"
+        "range range";
+      align-self: end;
+      max-width: 460px;
+    }
+
+    .rc-axis-throttle {
+      grid-area: throttle;
+      grid-template-rows: auto minmax(230px, 36vh) auto;
+      justify-items: center;
+      align-self: end;
+    }
+
+    .rc-axis input[type="range"] {
+      width: 100%;
+      min-height: 56px;
+      accent-color: #ffffff;
+      cursor: pointer;
+    }
+
+    .rc-axis-steering label {
+      grid-area: label;
+    }
+
+    .rc-axis-steering output {
+      grid-area: value;
+    }
+
+    .rc-axis-steering input[type="range"] {
+      grid-area: range;
+    }
+
+    .rc-axis-throttle input[type="range"] {
+      appearance: slider-vertical;
+      -webkit-appearance: slider-vertical;
+      width: 56px;
+      height: 260px;
+      min-height: 0;
+      writing-mode: vertical-lr;
+      direction: rtl;
+    }
+
+    .rc-actions {
+      grid-area: actions;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+      align-self: end;
+    }
+
+    .drive-hud {
+      position: fixed;
+      left: calc(16px + env(safe-area-inset-left));
+      bottom: calc(var(--drive-hud-bottom) + env(safe-area-inset-bottom));
+      z-index: 3;
+      display: none;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      width: min(400px, calc(100vw - 32px));
+      padding: 0;
+      transform: scale(var(--osd-scale));
+      transform-origin: bottom left;
+      color: #f7fbff;
+      font-family: Impact, "Arial Narrow", sans-serif;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.04em;
+      pointer-events: none;
+      transform: scale(var(--osd-scale));
+      transform-origin: top left;
+      text-shadow: 0 2px 2px #000000, 0 0 8px rgba(0, 0, 0, 0.82);
+    }
+
+    body.drive-ui .drive-hud {
+      display: grid;
+    }
+
+    body.drive-ui .control {
+      display: none;
+    }
+
+    body.drive-ui .rc-gear button {
+      display: none;
+    }
+
+    body.drive-ui .rc-actions {
+      display: none;
+    }
+
+    body.drive-ui .rc-gear-label {
+      min-width: 0;
+      font-size: 15px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .drive-header {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: baseline;
+      gap: 10px;
+    }
+
+    .drive-hud-title {
+      color: #a9c5dd;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      pointer-events: auto;
+      text-align: left;
+      text-shadow: inherit;
+    }
+
+    .drive-hud-title[aria-pressed="true"] {
+      color: #45f69b;
+      text-shadow: 0 0 8px rgba(69, 246, 155, 0.95), 0 2px 2px #000000;
+    }
+
+    .drive-hud-title[aria-pressed="true"]::before {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      margin-right: 6px;
+      border-radius: 50%;
+      background: #45f69b;
+      box-shadow: 0 0 8px rgba(69, 246, 155, 0.95);
+      content: "";
+    }
+
+    .drive-hud-title:disabled {
+      color: #71879a;
+    }
+
+    .drive-header-right {
+      text-align: right;
+    }
+
+    .drive-gear-value {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+    }
+
+    .drive-gear-step {
+      display: grid;
+      width: 22px;
+      height: 22px;
+      place-items: center;
+      border: 1px solid rgba(212, 230, 244, 0.55);
+      border-radius: 2px;
+      color: rgba(220, 234, 246, 0.68);
+      font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .drive-gear-step.is-active {
+      border-color: #fbd64a;
+      background: rgba(215, 166, 18, 0.86);
+      color: #ffffff;
+      box-shadow: 0 0 8px rgba(251, 214, 74, 0.76);
+    }
+
+    .drive-state {
+      color: #ffffff;
+      font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+    }
+
+    .drive-state[data-active="false"] {
+      color: #ff9c9c;
+    }
+
+    .drive-connection {
+      justify-self: end;
+      padding: 4px 7px;
+      border: 1px solid rgba(255, 79, 79, 0.94);
+      border-radius: 2px;
+      background: rgba(154, 15, 20, 0.72);
+      color: #ffffff;
+      font: inherit;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      pointer-events: auto;
+      text-align: right;
+      text-shadow: 0 1px 2px #000000;
+    }
+
+    .drive-connection:hover:not(:disabled) {
+      background: rgba(219, 30, 35, 0.92);
+      box-shadow: 0 0 9px rgba(255, 63, 63, 0.68);
+    }
+
+    .drive-connection:disabled {
+      border-color: rgba(255, 132, 132, 0.4);
+      background: rgba(77, 24, 26, 0.45);
+      color: #d98b8b;
+    }
+
+    .drive-pedals {
+      display: grid;
+      grid-template-columns: 30px 1fr 38px;
+    }
+
+    .drive-pedal {
+      display: grid;
+      grid-template-rows: auto 92px auto;
+      justify-items: center;
+      gap: 3px;
+      color: #dceaf6;
+      font-family: ui-monospace, "Cascadia Mono", monospace;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+    }
+
+    .drive-pedal-track {
+      position: relative;
+      width: 20px;
+      height: 92px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.56);
+      border-radius: 3px;
+      background: rgba(0, 0, 0, 0.18);
+      box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.48);
+    }
+
+    .drive-pedal-track::after {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      height: 100%;
+      background: var(--drive-color);
+      box-shadow: 0 0 10px var(--drive-color);
+      content: "";
+      opacity: 0.78;
+      transform: scaleY(var(--drive-level, 0));
+      transform-origin: bottom;
+      transition: transform 40ms linear;
+    }
+
+    .drive-pedal-value,
+    .drive-steering-value {
+      color: #ffffff;
+      font-size: 13px;
+      min-width: 32px;
+      text-align: right;
+    }
+
+    .drive-pedal.throttle {
+      --drive-color: rgba(47, 220, 118, 0.92);
+    }
+
+    .drive-pedal.brake {
+      --drive-color: rgba(239, 74, 78, 0.92);
+      grid-column: 2;
+      grid-row: 1;
+      justify-self: start;
+    }
+
+    .drive-pedal.throttle {
+      grid-column: 2;
+      grid-row: 1;
+      justify-self: end;
+    }
+
+    .drive-steering {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 8px;
+      color: #dceaf6;
+      font-family: ui-monospace, "Cascadia Mono", monospace;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+    }
+
+    .drive-steering-track {
+      position: relative;
+      height: 14px;
+      border: 1px solid rgba(219, 248, 255, 0.8);
+      border-radius: 2px;
+      background: transparent;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.75);
+    }
+
+    .drive-steering-track::before {
+      position: absolute;
+      top: 2px;
+      bottom: 2px;
+      left: 50%;
+      width: 1px;
+      background: rgba(255, 255, 255, 0.72);
+      content: "";
+    }
+
+    .drive-steering-marker {
+      position: absolute;
+      top: -4px;
+      left: 50%;
+      width: 10px;
+      height: 20px;
+      border: 1px solid rgba(230, 252, 255, 0.95);
+      border-radius: 2px;
+      background: rgba(72, 221, 255, 0.82);
+      box-shadow: 0 0 8px rgba(72, 221, 255, 0.68);
+      transform: translateX(-50%);
+      transition: left 40ms linear;
+    }
+
+    .rc-gear {
+      display: flex;
+      flex: 0 0 100%;
+      justify-content: center;
+      align-items: center;
+      gap: 6px;
+      color: #ffffff;
+      font-weight: 700;
+      text-shadow: 0 0 2px #000000;
+    }
+
+    .rc-gear-label {
+      min-width: 72px;
+      text-align: right;
+      opacity: 0.82;
+    }
+
+    .rc-gear button {
+      width: 34px;
+      min-width: 34px;
+      padding: 0;
+      font-weight: 700;
+    }
+
+    .rc-gear button[aria-pressed="true"] {
+      border-color: rgba(88, 255, 153, 0.9);
+      background: rgba(0, 126, 61, 0.86);
+      color: #ffffff;
+      opacity: 0.94;
+    }
+
+    input,
+    button {
+      min-height: 32px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: rgba(0, 0, 0, 0.08);
+      color: #f4f7fb;
+    }
+
+    input[type="text"] {
+      width: 180px;
+      padding: 0 8px;
+      opacity: 0.46;
+    }
+
+    input[type="range"] {
+      appearance: none;
+      height: 54px;
+      border: 0;
+      background: transparent;
+    }
+
+    input[type="range"]::-webkit-slider-runnable-track {
+      height: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.65);
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.24);
+      box-shadow: 0 0 3px #000000;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      appearance: none;
+      width: 54px;
+      height: 54px;
+      margin-top: -22px;
+      border: 2px solid rgba(255, 255, 255, 0.95);
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.18);
+      box-shadow:
+        0 0 4px #000000,
+        inset 0 0 0 12px rgba(255, 255, 255, 0.18);
+    }
+
+    input[type="range"]::-moz-range-track {
+      height: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.65);
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.24);
+      box-shadow: 0 0 3px #000000;
+    }
+
+    input[type="range"]::-moz-range-thumb {
+      width: 54px;
+      height: 54px;
+      border: 2px solid rgba(255, 255, 255, 0.95);
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.18);
+      box-shadow:
+        0 0 4px #000000,
+        inset 0 0 0 12px rgba(255, 255, 255, 0.18);
+    }
+
+    button {
+      padding: 0 12px;
+      cursor: pointer;
+      opacity: 0.46;
+    }
+
+    #btnDrive {
+      min-width: 104px;
+      min-height: 38px;
+      border-width: 2px;
+      font-weight: 700;
+      opacity: 0.94;
+      text-shadow: 0 0 2px #000000;
+      box-shadow:
+        0 0 4px rgba(0, 0, 0, 0.8),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    }
+
+    #btnDrive[aria-pressed="false"] {
+      border-color: rgba(255, 92, 92, 0.86);
+      background: rgba(128, 18, 24, 0.82);
+      color: #ffffff;
+    }
+
+    #btnDrive[aria-pressed="true"] {
+      border-color: rgba(88, 255, 153, 0.9);
+      background: rgba(0, 126, 61, 0.86);
+      color: #ffffff;
+    }
+
+    button:disabled,
+    input:disabled {
+      cursor: default;
+      opacity: 0.48;
+    }
+
+    #btnDrive:disabled {
+      opacity: 0.72;
+      filter: grayscale(0.2);
+    }
+
+    .primary {
+      background: rgba(29, 111, 223, 0.2);
+      border-color: rgba(69, 136, 246, 0.38);
+    }
+
+    .danger {
+      background: rgba(122, 32, 38, 0.2);
+      border-color: rgba(166, 58, 66, 0.38);
+    }
+
+    .top {
+      position: fixed;
+      top: calc(16px + env(safe-area-inset-top));
+      left: auto;
+      right: calc(16px + env(safe-area-inset-right));
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      pointer-events: none;
+      transform: scale(var(--osd-scale));
+      transform-origin: top right;
+    }
+
+    .top-controls {
+      max-width: min(520px, calc(100vw - 32px));
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      opacity: 0.36;
+      text-shadow: 0 0 2px #000000;
+      pointer-events: auto;
+    }
+
+    .top-controls:hover,
+    .panel:hover .rc-axis,
+    .panel:hover input,
+    .panel:hover button {
+      opacity: 1;
+    }
+
+    .debug-controls {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      opacity: 0.46;
+      text-shadow: 0 0 2px #000000;
+    }
+
+    body.debug-osd .debug-controls {
+      display: inline-flex;
+    }
+
+    select {
+      min-height: 32px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: rgba(0, 0, 0, 0.08);
+      color: #f4f7fb;
+    }
+
+    .top-controls:hover .debug-controls,
+    .debug-controls:hover {
+      opacity: 1;
+    }
+
+    .mic-control {
+      display: inline-grid;
+      grid-template-columns: auto auto;
+      grid-template-rows: auto auto;
+      grid-template-areas:
+        "button volume"
+        "meter volume";
+      gap: 4px 8px;
+      align-items: center;
+      margin-left: 6px;
+      vertical-align: middle;
+      opacity: 0.86;
+    }
+
+    .mic-control button {
+      grid-area: button;
+      min-width: 68px;
+      font-weight: 700;
+    }
+
+    .mic-control button[aria-pressed="true"] {
+      border-color: rgba(88, 255, 153, 0.9);
+      background: rgba(0, 126, 61, 0.86);
+      color: #ffffff;
+      opacity: 1;
+    }
+
+    .mic-meter {
+      grid-area: meter;
+      display: grid;
+      grid-template-columns: repeat(8, 4px);
+      gap: 3px;
+      height: 18px;
+      align-items: end;
+      padding: 2px 4px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 3px;
+      background: rgba(0, 0, 0, 0.24);
+    }
+
+    .mic-meter span {
+      display: block;
+      width: 4px;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.22);
+    }
+
+    .mic-meter span:nth-child(2n) {
+      height: 10px;
+    }
+
+    .mic-meter span:nth-child(3n) {
+      height: 14px;
+    }
+
+    .mic-meter[data-level="1"] span:nth-child(-n+2),
+    .mic-meter[data-level="2"] span:nth-child(-n+4),
+    .mic-meter[data-level="3"] span:nth-child(-n+6),
+    .mic-meter[data-level="4"] span:nth-child(-n+8) {
+      background: rgba(88, 255, 153, 0.9);
+      box-shadow: 0 0 4px rgba(88, 255, 153, 0.7);
+    }
+
+    .mic-volume {
+      grid-area: volume;
+      width: 92px;
+      min-height: 30px;
+    }
+
+    .hidden-endpoint {
+      display: none;
+    }
+
+    @media (max-width: 720px) {
+      .race-summary {
+        top: calc(80px + env(safe-area-inset-top));
+        width: 210px;
+        padding: 8px 10px;
+      }
+
+      .race-phase {
+        font-size: 16px;
+      }
+
+      .race-time-row strong {
+        font-size: 16px;
+      }
+
+      .race-total {
+        min-width: 208px;
+        padding: 7px 12px 9px;
+      }
+
+      .race-position {
+        top: calc(60px + env(safe-area-inset-top));
+        min-width: 110px;
+        padding: 6px 8px;
+      }
+
+      .race-history {
+        display: none;
+      }
+
+      .hud {
+        grid-template-columns: 1fr;
+      }
+
+      .panel {
+        grid-template-columns: minmax(180px, 1fr) minmax(88px, 22vw);
+        grid-template-areas:
+          "steering throttle"
+          "actions actions";
+        max-width: none;
+      }
+
+      .status {
+        grid-template-columns: 1fr;
+        min-width: 0;
+        width: 100%;
+      }
+
+      .control {
+        width: 100%;
+        min-width: 0;
+      }
+
+      .rc-axis-steering {
+        max-width: none;
+      }
+
+      .rc-axis-throttle {
+        grid-template-rows: auto minmax(190px, 30vh) auto;
+      }
+
+      .rc-axis-throttle input[type="range"] {
+        width: 56px;
+        height: 220px;
+      }
+
+      .drive-hud {
+        left: 50%;
+        bottom: calc(16px + env(safe-area-inset-bottom));
+        gap: 8px;
+        width: min(500px, calc(100vw - 20px));
+        transform: translateX(-50%) scale(var(--osd-scale));
+        transform-origin: bottom center;
+      }
+
+      .drive-pedals {
+        grid-template-columns: 30px 1fr 38px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <video id="remote_video" autoplay muted playsinline></video>
+
+  <section class="race-hud" aria-live="polite" aria-label="Race status">
+    <div class="race-summary race-card">
+      <div class="race-summary-head">
+        <span id="racePhase" class="race-phase">STANDBY</span>
+        <span id="raceLapCount" class="race-lap-count">LAP -- / --</span>
+      </div>
+      <div class="race-time-grid">
+        <div class="race-time-row">
+          <span class="race-label">CURRENT LAP</span>
+          <strong id="raceCurrentLap">--:--.---</strong>
+        </div>
+        <div class="race-time-row">
+          <span class="race-label">LAST LAP</span>
+          <strong id="raceLastLap">--:--.---</strong>
+        </div>
+        <div class="race-time-row best">
+          <span class="race-label">BEST LAP</span>
+          <strong id="raceBestLap">--:--.---</strong>
+        </div>
+      </div>
+    </div>
+
+    <div class="race-total race-card">
+      <span class="race-label">TOTAL TIME</span>
+      <strong id="raceTotalTime" class="race-total-time">--:--.---</strong>
+    </div>
+
+    <div class="race-position race-card">
+      <span class="race-label">POSITION</span>
+      <strong id="racePosition" class="race-position-value">--<em>/--</em></strong>
+    </div>
+
+    <div class="race-history race-card">
+      <span class="race-label">LAP HISTORY</span>
+      <ol id="raceLapHistory">
+        <li class="is-empty">WAITING FOR RACE DATA</li>
+      </ol>
+    </div>
+  </section>
+
+  <div class="top">
+    <div class="top-controls">
+      <input id="endpoint" class="hidden-endpoint" type="text" autocomplete="off" spellcheck="false">
+      <button id="btnFullscreen" type="button">Fullscreen</button>
+      <button id="btnFlip" type="button">Flip</button>
+      <button id="btnMirror" type="button">Mirror</button>
+      <button id="btnAudio" type="button">Audio</button>
+      <button id="btnAudioFilter" type="button">Filter</button>
+      <span class="mic-control" aria-label="Microphone to car speaker">
+        <button id="btnMic" type="button" aria-pressed="false">Mic</button>
+        <span id="micMeter" class="mic-meter" data-level="0" aria-hidden="true">
+          <span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span>
+        </span>
+        <input id="micVolume" class="mic-volume" type="range" min="0" max="200" step="1" value="100" aria-label="Microphone volume">
+      </span>
+      <button id="btnDebug" type="button">Debug</button>
+      <span class="debug-controls">
+        <label>
+          Mode
+          <select id="modeSelect" disabled>
+            <option value="">refresh</option>
+          </select>
+        </label>
+        <button id="btnApplyMode" type="button" disabled>Apply</button>
+        <button id="btnRefreshMode" type="button">Refresh Mode</button>
+        <button id="btnRefreshDevice" type="button">Refresh Device</button>
+        <button id="btnInputSetup" type="button">Input</button>
+      </span>
+    </div>
+  </div>
+
+  <div class="hud">
+    <div class="panel">
+      <div class="status">
+        <div class="status-row">
+          <div><span>ID</span> <strong id="hostState">n/a</strong></div>
+          <div><span>Time</span> <strong id="timeState">n/a</strong></div>
+        </div>
+        <div class="debug-only"><span>WebSocket</span> <strong id="wsState">closed</strong></div>
+        <div class="debug-only"><span>ICE</span> <strong id="iceState">new</strong></div>
+        <div class="debug-only"><span>DataChannel</span> <strong id="dcState">closed</strong></div>
+        <div class="status-row">
+          <div><span>Link</span> <strong id="linkState">starting</strong></div>
+          <div><span>Video</span> <strong id="videoState">waiting</strong></div>
+        </div>
+        <div class="status-row">
+          <div><span>FPS</span> <strong id="fpsState">0.0</strong></div>
+          <div><span>Delay</span> <strong id="latencyState">n/a</strong></div>
+        </div>
+        <div class="debug-only"><span>Render</span> <strong id="renderFpsState">0.0</strong></div>
+        <div class="debug-only"><span>Net</span> <strong id="netState">0kbps</strong></div>
+        <div class="debug-only"><span>Jitter</span> <strong id="jitterState">0ms</strong></div>
+        <div class="debug-only"><span>RTT</span> <strong id="rttState">n/a</strong></div>
+        <div class="debug-only"><span>DC RTT</span> <strong id="dcRttState">n/a</strong></div>
+        <div class="debug-only"><span>Dropped</span> <strong id="dropState">0</strong></div>
+        <div class="debug-only"><span>Uptime</span> <strong id="uptimeState">0s</strong></div>
+        <div class="debug-only"><span>Retry</span> <strong id="retryState">none</strong></div>
+        <div class="debug-only"><span>Last</span> <strong id="lastEventState">start</strong></div>
+        <div class="debug-only"><span>Diag</span> <strong id="diagState">n/a</strong></div>
+        <div class="debug-only"><span>VideoAge</span> <strong id="videoAgeState">n/a</strong></div>
+        <div class="debug-only"><span>RC</span> <strong id="rcState">manual</strong></div>
+        <div class="debug-only"><span>Telemetry</span> <strong id="telemetryState">n/a</strong></div>
+        <div class="debug-only"><span>Mode</span> <strong id="modeState">n/a</strong></div>
+        <div class="debug-only"><span>Device</span> <strong id="deviceState">n/a</strong></div>
+      </div>
+
+      <div class="control" aria-label="RC controls">
+        <div class="rc-axis rc-axis-steering">
+          <label for="steering">Steering</label>
+          <input id="steering" type="range" min="1000" max="2000" step="1" value="1500">
+          <output id="steeringValue" for="steering">1500</output>
+        </div>
+
+        <div class="rc-axis rc-axis-throttle">
+          <label for="throttle">Throttle</label>
+          <input id="throttle" type="range" min="1300" max="2000" step="1" value="1500">
+          <output id="throttleValue" for="throttle">1500</output>
+        </div>
+      </div>
+
+      <section id="driveHud" class="drive-hud" hidden aria-label="Driving input display">
+        <div class="drive-header">
+          <button id="driveHudMode" class="drive-hud-title" type="button" aria-pressed="false">DRIVE OFF</button>
+          <span id="driveHudGear" class="drive-gear-value" aria-label="Throttle gear">
+            <span class="drive-gear-step" data-gear="1">1</span>
+            <span class="drive-gear-step" data-gear="2">2</span>
+            <span class="drive-gear-step" data-gear="3">3</span>
+            <span class="drive-gear-step" data-gear="4">4</span>
+            <span class="drive-gear-step" data-gear="5">5</span>
+          </span>
+          <button id="driveHudConnection" class="drive-state drive-header-right drive-connection" type="button" data-active="false" disabled>DISCONNECTED</button>
+        </div>
+        <div class="drive-pedals">
+          <div class="drive-pedal brake">
+            <span>BRK</span><span id="driveHudBrake" class="drive-pedal-track"></span><span id="driveHudBrakeValue" class="drive-pedal-value">0%</span>
+          </div>
+          <div class="drive-pedal throttle">
+            <span>THR</span><span id="driveHudThrottle" class="drive-pedal-track"></span><span id="driveHudThrottleValue" class="drive-pedal-value">0%</span>
+          </div>
+        </div>
+        <div class="drive-steering">
+          <span>STR</span>
+          <span class="drive-steering-track"><span id="driveHudSteeringMarker" class="drive-steering-marker"></span></span>
+          <span id="driveHudSteering" class="drive-steering-value">0%</span>
+        </div>
+      </section>
+
+      <div class="rc-actions">
+        <div class="rc-gear" aria-label="Throttle gear">
+          <span id="gearState" class="rc-gear-label">Gear 1</span>
+          <button class="gear-button" type="button" data-gear="1" aria-pressed="true">1</button>
+          <button class="gear-button" type="button" data-gear="2" aria-pressed="false">2</button>
+          <button class="gear-button" type="button" data-gear="3" aria-pressed="false">3</button>
+          <button class="gear-button" type="button" data-gear="4" aria-pressed="false">4</button>
+          <button class="gear-button" type="button" data-gear="5" aria-pressed="false">5</button>
+        </div>
+        <button id="btnReconnect" type="button">Connect</button>
+        <button id="btnDrive" type="button" aria-pressed="false" disabled>Drive Off</button>
+      </div>
+      <input id="data_text" type="hidden" value="S:1500,T:1500" autocomplete="off" spellcheck="false">
+    </div>
+  </div>
+
+<script src="./pilot.js"></script>
+</body>
+</html>
