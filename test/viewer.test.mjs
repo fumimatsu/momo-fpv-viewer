@@ -174,6 +174,18 @@ test('Throttle back range expands by gear', () => {
   assert.match(html, /id="throttle" type="range" min="1000" max="2000"/);
 });
 
+test('automatic Ayame client ID follows the room lock policy', () => {
+  const js = readProjectFile('viewer.js');
+  const roomLockIndex = js.indexOf("const ROOM_LOCK_ENABLED = getBooleanParam('roomLock'");
+  const clientIdIndex = js.indexOf('const AYAME_CLIENT_ID = getAyameClientId(ROOM_LOCK_ENABLED)');
+
+  assert.notEqual(roomLockIndex, -1, 'ROOM_LOCK_ENABLED is missing');
+  assert.notEqual(clientIdIndex, -1, 'AYAME_CLIENT_ID does not use the room lock policy');
+  assert.ok(roomLockIndex < clientIdIndex, 'room lock policy must be resolved before client ID generation');
+  assert.match(js, /const prefix = roomLockEnabled \? 'fpv-viewer' : 'fpv-unlocked'/);
+  assert.match(js, /return createAyameClientId\(roomLockEnabled\)/);
+});
+
 test('Gamepad mappings are stored and selected per VID and PID profile', () => {
   const gamepadHtml = readProjectFile('gamepad.html');
   const gamepadJs = readProjectFile('gamepad.js');

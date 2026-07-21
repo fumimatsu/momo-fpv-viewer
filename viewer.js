@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VIEWER_BUILD_ID = '20260711-gamepad-profiles';
+  const VIEWER_BUILD_ID = '20260711-room-lock-auto-client';
   const DEFAULT_HOST = '192.168.11.3:8080';
   const RECONNECT_BASE_DELAY_MS = 500;
   const RECONNECT_MAX_DELAY_MS = 5000;
@@ -69,7 +69,8 @@
     DEFAULT_AYAME_SIGNALING_URL,
   );
   const AYAME_ROOM_ID = getStringParam(['roomId', 'ayameRoomId'], '');
-  const AYAME_CLIENT_ID = getAyameClientId();
+  const ROOM_LOCK_ENABLED = getBooleanParam('roomLock', SIGNALING_MODE === 'ayame');
+  const AYAME_CLIENT_ID = getAyameClientId(ROOM_LOCK_ENABLED);
   const AYAME_SIGNALING_KEY = getStringParam(['signalingKey', 'ayameKey'], '');
   const AUTO_START = getBooleanParam('autoStart', SIGNALING_MODE !== 'ayame');
   const ICE_MODE = normalizeIceMode(getStringParam(['iceMode', 'ice'], 'auto'));
@@ -92,7 +93,6 @@
   );
   const MIC_DEFAULT_VOLUME = Math.max(0, Math.min(200, getNumberParamAllowZero('micVolume', 100)));
   const MIC_METER_INTERVAL_MS = 100;
-  const ROOM_LOCK_ENABLED = getBooleanParam('roomLock', SIGNALING_MODE === 'ayame');
   const ROOM_LOCK_URL = normalizeBaseUrl(getStringParam(['lockUrl', 'roomLockUrl'], defaultRoomLockUrl()));
   const ROOM_LOCK_TTL_SEC = getNumberParam('roomLockTtl', 30);
   const ROOM_LOCK_POLL_MS = getNumberParam('roomLockPollMs', 5000);
@@ -580,16 +580,17 @@
     return Math.random().toString(36).slice(2, 12);
   }
 
-  function createAyameClientId() {
-    return `fpv-viewer-${Date.now().toString(36)}-${createRandomIdPart()}`;
+  function createAyameClientId(roomLockEnabled) {
+    const prefix = roomLockEnabled ? 'fpv-viewer' : 'fpv-unlocked';
+    return `${prefix}-${Date.now().toString(36)}-${createRandomIdPart()}`;
   }
 
-  function getAyameClientId() {
+  function getAyameClientId(roomLockEnabled) {
     const configured = getStringParam(['clientId', 'ayameClientId'], '');
     if (configured && configured.toLowerCase() !== 'auto') {
       return configured;
     }
-    return createAyameClientId();
+    return createAyameClientId(roomLockEnabled);
   }
 
   function isAyameSignaling() {
