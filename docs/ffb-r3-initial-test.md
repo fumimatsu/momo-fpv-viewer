@@ -2,7 +2,7 @@
 
 ## Status
 
-Design and local installation inspection completed. Hardware output validation is pending until a MOZA R3 is connected to the Viewer PC.
+Viewer-to-local-Bridge の初期実装と .NET Release build は完了。MOZA R3 の Acquire、方向、トルク出力の実機検証は未実施。
 
 ## Goal
 
@@ -144,11 +144,13 @@ Feed recorded or synthetic telemetry v1 into the bridge without a live vehicle.
 
 Acceptance: each mapping can be tuned without vehicle firmware changes and stale handling is observable in logs.
 
-### FFB-4: Live Momo integration
+### FFB-4: Viewer steering integration
 
-Only after FFB-3 passes, add the Viewer-to-local-bridge transport and use real Momo telemetry.
+`ffbTest=1` の Viewer は、明示 Enable 後に現在のステアリング RC 指令を `-1..+1` へ正規化し、絶対値に比例する反対向き constant force を localhost Bridge へ送る。これはテレメトリー連携前の、入出力経路と極性を検証するための試験である。
 
-The Viewer must send normalized, validated events to the bridge. The bridge owns rate limiting, force summation, clamping, and zero-force behavior. Do not let arbitrary browser input directly map to raw wheel torque.
+Viewer は既定で最大 `0.30`、Bridge は既定で最大 `0.40` に clamp する。250 ms の Bridge watchdog、Viewer の Stop、切断、ページ離脱、Bridge 終了はいずれもゼロ出力にする。手順は [../tools/ffb-bridge/README.md](../tools/ffb-bridge/README.md) を参照する。
+
+Viewer は raw wheel torque を任意に送らない。Bridge が device Acquire、effect 更新、出力 clamp、停止を所有する。テレメトリーを使う段階では、このステアリング試験を置き換えるのではなく、Bridge への入力を別の正規化済み信号として追加する。
 
 ## Implementation Decision
 

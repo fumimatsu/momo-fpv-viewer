@@ -1,6 +1,6 @@
 # Relay Pilot Variant
 
-`pilot.html` と `pilot.js` は Momo Relay 経由の Pilot 用 Viewer の正本です。
+`pilot.html`、`pilot.js`、`ffb-bridge.js` は Momo Relay 経由の Pilot 用 Viewer の正本です。`ffb-bridge.js` は root の同名ファイルと同一内容を維持し、Direct / Relay のどちらも同じ localhost FFB Bridge 契約を使います。
 
 通常の `viewer.html` / `viewer.js` は Pi 直結 P2P と Ayame 用であり、Relay 用へそのまま置換してはならない。Relay 版は `device` 指定、`momo-command`、`momo-telemetry`、`momo-race` の DataChannel を追加で扱う。
 

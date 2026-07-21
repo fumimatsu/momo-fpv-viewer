@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VIEWER_BUILD_ID = '20260711-room-lock-auto-client';
+  const VIEWER_BUILD_ID = '20260721-ffb-steering-test';
   const DEFAULT_HOST = '192.168.11.3:8080';
   const RECONNECT_BASE_DELAY_MS = 500;
   const RECONNECT_MAX_DELAY_MS = 5000;
@@ -109,6 +109,12 @@
   const RACE_SOUND_VOLUME = Math.max(0, Math.min(1, getNumberParamAllowZero('raceSoundVolume', 0.35)));
   const TELEMETRY_MOCK_ENABLED = getBooleanParam('telemetryMock', false);
   const TELEMETRY_MOCK_HZ = Math.max(1, Math.min(100, getNumberParam('telemetryMockHz', 20)));
+  const FFB_TEST_MODE = getBooleanParam('ffbTest', false);
+  const FFB_TEST_URL = getStringParam('ffbUrl', 'ws://127.0.0.1:24725');
+  const FFB_TEST_TORQUE_LIMIT = Math.max(0.01, Math.min(0.40, getNumberParam('ffbTorqueLimit', 0.30)));
+  const FFB_TEST_SEND_INTERVAL_MS = Math.max(20, Math.min(100, getNumberParam('ffbSendMs', 20)));
+  const FFB_TEST_PULSE_TORQUE = Math.max(0.05, Math.min(0.40, getNumberParam('ffbPulseTorque', 0.35)));
+  const FFB_TEST_PULSE_MS = Math.max(100, Math.min(1000, getNumberParam('ffbPulseMs', 350)));
 
   const remoteVideo = document.getElementById('remote_video');
   const endpointInput = document.getElementById('endpoint');
@@ -175,8 +181,22 @@
   const btnSend = document.getElementById('btnSend');
   const btnNeutral = document.getElementById('btnNeutral');
   const btnDisconnect = document.getElementById('btnDisconnect');
+  const ffbTestPanel = document.getElementById('ffbTestPanel');
+  const ffbDevice = document.getElementById('ffbDevice');
+  const ffbInvert = document.getElementById('ffbInvert');
+  const ffbState = document.getElementById('ffbState');
+  const btnFfbConnect = document.getElementById('btnFfbConnect');
+  const btnFfbAcquire = document.getElementById('btnFfbAcquire');
+  const btnFfbEnable = document.getElementById('btnFfbEnable');
+  const btnFfbPulseNegative = document.getElementById('btnFfbPulseNegative');
+  const btnFfbPulsePositive = document.getElementById('btnFfbPulsePositive');
+  const btnFfbStop = document.getElementById('btnFfbStop');
   const gearState = document.getElementById('gearState');
   const gearButtons = Array.from(document.querySelectorAll('.gear-button'));
+  let ffbClient = null;
+  let ffbOutputEnabled = false;
+  let ffbSendTimer = 0;
+  let ffbPulseTimer = 0;
 
   let ws = null;
   let peerConnection = null;
@@ -2041,6 +2061,112 @@
       dataTextInput.value = lastRcCommand;
     }
     updateRcUi();
+    sendFfbSteering();
+  }
+
+  function getFfbSteering() {
+    const offset = Number(steeringInput?.value || 1500) - 1500;
+    return Math.max(-1, Math.min(1, offset / Math.max(1, RC_STEERING_THROW)));
+  }
+
+  function updateFfbUi(snapshot = ffbClient?.snapshot?.()) {
+    if (!ffbTestPanel || !ffbState) return;
+    const state = snapshot || { connected: false, connecting: false, acquired: false, devices: [], lastError: '' };
+    const devices = Array.isArray(state.devices) ? state.devices : [];
+    const previous = ffbDevice?.value || state.selectedDeviceId || '';
+    if (ffbDevice && document.activeElement !== ffbDevice) {
+      ffbDevice.replaceChildren();
+      if (devices.length === 0) {
+        ffbDevice.add(new Option(state.connected ? 'No DirectInput device found' : 'Connect bridge first', ''));
+      } else {
+        for (const device of devices) {
+          const suffix = device.isFfbCapable ? ' FFB' : '';
+          ffbDevice.add(new Option(`${device.name || device.id}${suffix}`, String(device.id || '')));
+        }
+      }
+      ffbDevice.value = previous;
+      if (!ffbDevice.value && devices[0]?.id) ffbDevice.value = String(devices[0].id);
+    }
+    const torque = getFfbSteering() * FFB_TEST_TORQUE_LIMIT * (ffbInvert?.checked ? -1 : 1);
+    const link = state.connecting ? 'connecting' : state.connected ? 'connected' : 'offline';
+    const output = ffbOutputEnabled && state.acquired ? ` ON ${torque.toFixed(3)}` : ' OFF';
+    setText(ffbState, `${link}${state.acquired ? ' acquired' : ''}${output}${state.lastError ? ` ${state.lastError}` : ''}`);
+    if (btnFfbConnect) btnFfbConnect.textContent = state.connected ? 'Disconnect FFB' : 'Connect FFB';
+    if (btnFfbAcquire) btnFfbAcquire.disabled = !state.connected || !ffbDevice?.value;
+    if (btnFfbEnable) {
+      btnFfbEnable.disabled = !state.acquired;
+      btnFfbEnable.textContent = ffbOutputEnabled ? 'Disable FFB' : 'Enable FFB';
+    }
+    if (btnFfbPulseNegative) btnFfbPulseNegative.disabled = !state.acquired || ffbOutputEnabled;
+    if (btnFfbPulsePositive) btnFfbPulsePositive.disabled = !state.acquired || ffbOutputEnabled;
+    if (btnFfbStop) btnFfbStop.disabled = !state.connected;
+  }
+
+  function sendFfbSteering() {
+    if (!ffbOutputEnabled || !ffbClient) return;
+    const snapshot = ffbClient.snapshot();
+    if (!snapshot.acquired) {
+      ffbOutputEnabled = false;
+      updateFfbUi(snapshot);
+      return;
+    }
+    const torque = getFfbSteering() * FFB_TEST_TORQUE_LIMIT * (ffbInvert?.checked ? -1 : 1);
+    ffbClient.sendFfb({
+      torque,
+      gain: 1,
+      enabled: true,
+      effectMode: 'constant',
+      damper: 0,
+      friction: 0,
+      inertia: 0,
+    });
+    updateFfbUi(snapshot);
+  }
+
+  function stopFfbOutput() {
+    ffbOutputEnabled = false;
+    if (ffbPulseTimer) {
+      window.clearTimeout(ffbPulseTimer);
+      ffbPulseTimer = 0;
+    }
+    ffbClient?.stopAll();
+    updateFfbUi();
+  }
+
+  function pulseFfb(direction) {
+    if (!ffbClient?.snapshot().acquired || ffbOutputEnabled) return;
+    stopFfbOutput();
+    const torque = direction * FFB_TEST_PULSE_TORQUE * (ffbInvert?.checked ? -1 : 1);
+    ffbClient.sendFfb({
+      torque,
+      gain: 1,
+      enabled: true,
+      effectMode: 'constant',
+      damper: 0,
+      friction: 0,
+      inertia: 0,
+    });
+    ffbPulseTimer = window.setTimeout(() => {
+      ffbPulseTimer = 0;
+      ffbClient?.stopAll();
+      updateFfbUi();
+    }, FFB_TEST_PULSE_MS);
+    updateFfbUi();
+  }
+
+  function initializeFfbTest() {
+    if (!FFB_TEST_MODE || !ffbTestPanel) return;
+    ffbTestPanel.hidden = false;
+    if (!window.FpvFfbBridge?.FfbBridgeClient) {
+      setText(ffbState, 'FFB Bridge client script was not loaded');
+      return;
+    }
+    ffbClient = new window.FpvFfbBridge.FfbBridgeClient({
+      url: FFB_TEST_URL,
+      onState: updateFfbUi,
+    });
+    ffbSendTimer = window.setInterval(sendFfbSteering, FFB_TEST_SEND_INTERVAL_MS);
+    updateFfbUi();
   }
 
   function syncCommandFromThrottleSlider() {
@@ -4253,6 +4379,7 @@
 
   endpointInput.value = getInitialHost();
   syncCommandFromSliders();
+  initializeFfbTest();
 
   steeringInput.addEventListener('input', syncCommandFromSliders);
   throttleInput.addEventListener('input', syncCommandFromThrottleSlider);
@@ -4289,6 +4416,33 @@
   if (btnDisconnect) {
     btnDisconnect.addEventListener('click', disconnect);
   }
+  btnFfbConnect?.addEventListener('click', () => {
+    if (!ffbClient) return;
+    if (ffbClient.snapshot().connected) {
+      stopFfbOutput();
+      ffbClient.disconnect();
+      return;
+    }
+    ffbClient.connect(FFB_TEST_URL);
+  });
+  btnFfbAcquire?.addEventListener('click', () => {
+    const deviceId = ffbDevice?.value || '';
+    if (deviceId) ffbClient?.acquire(deviceId);
+  });
+  btnFfbEnable?.addEventListener('click', () => {
+    if (!ffbClient?.snapshot().acquired) return;
+    if (ffbOutputEnabled) {
+      stopFfbOutput();
+    } else {
+      ffbOutputEnabled = true;
+      sendFfbSteering();
+      updateFfbUi();
+    }
+  });
+  btnFfbPulseNegative?.addEventListener('click', () => pulseFfb(-1));
+  btnFfbPulsePositive?.addEventListener('click', () => pulseFfb(1));
+  btnFfbStop?.addEventListener('click', stopFfbOutput);
+  ffbInvert?.addEventListener('change', sendFfbSteering);
   btnReconnect.addEventListener('click', () => {
     if (isConnectionActive()) {
       disconnect();
@@ -4446,6 +4600,7 @@
     }
   });
   window.addEventListener('pagehide', () => {
+    stopFfbOutput();
     if (telemetryMockTimer) {
       window.clearInterval(telemetryMockTimer);
       telemetryMockTimer = null;

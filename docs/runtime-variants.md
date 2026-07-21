@@ -7,7 +7,7 @@ Viewer のソースリポジトリは `fumimatsu/momo-fpv-viewer` とする。
 | Variant | 正本 | 接続経路 | 配布先 |
 | --- | --- | --- | --- |
 | Direct | `viewer.html` / `viewer.js` | Pi 直結 P2P、Ayame | ローカル HTTP、GitHub Pages |
-| Relay Pilot | `variants/relay/pilot.html` / `variants/relay/pilot.js` | Local Relay | `momo/tools/momo-relay/web/` |
+| Relay Pilot | `variants/relay/pilot.html` / `variants/relay/pilot.js` / `variants/relay/ffb-bridge.js` | Local Relay | `momo/tools/momo-relay/web/` |
 
 `momo-fpv` の `client/` と `device-html/` は Pi 直結配布の運用コピーである。Relay Pilot の正本ではない。
 
@@ -19,7 +19,7 @@ Direct Viewer は Pi の `serial` DataChannel と Ayame signaling を扱う。Re
 
 ## FFB の扱い
 
-FFB はブラウザ機能ではない。Viewer PC 上のネイティブ bridge が DirectInput / MOZA Pit House と連携して出力する。ブラウザ側は bridge へ渡す telemetry 契約を持つだけであり、FFB bridge 自体を `momo` や Pi へ混在させない。
+FFB はブラウザ機能ではない。Viewer PC 上のネイティブ bridge が DirectInput / MOZA Pit House と連携して出力する。ブラウザ側は localhost Bridge の WebSocket client だけを持ち、FFB bridge 自体を `momo` や Pi へ混在させない。`ffb-bridge.js` は Direct と Relay で同一内容を維持する。
 
 初期試験計画は [ffb-r3-initial-test.md](ffb-r3-initial-test.md) を参照する。
 

@@ -12,7 +12,7 @@ function readProjectFile(path) {
 }
 
 test('viewer JavaScript files parse', () => {
-  for (const file of ['viewer.js', 'telemetry.js', 'gamepad-profile.js', 'gamepad.js', 'monitor.js']) {
+  for (const file of ['viewer.js', 'telemetry.js', 'gamepad-profile.js', 'ffb-bridge.js', 'gamepad.js', 'monitor.js']) {
     execFileSync(process.execPath, ['--check', join(rootDir, file)], {
       stdio: 'pipe',
     });
@@ -172,6 +172,29 @@ test('Throttle back range expands by gear', () => {
   assert.match(js, /const RC_THROTTLE_GEAR_MIN_VALUES = \[1400, 1350, 1200, 1100, 1000\]/);
   assert.match(js, /const RC_THROTTLE_GEAR_MAX_VALUES = \[1600, 1650, 1800, 1900, 2000\]/);
   assert.match(html, /id="throttle" type="range" min="1000" max="2000"/);
+});
+
+test('FFB steering test is opt-in and uses the localhost bridge', () => {
+  const html = readProjectFile('viewer.html');
+  const js = readProjectFile('viewer.js');
+  const bridgeClient = readProjectFile('ffb-bridge.js');
+  assert.ok(html.indexOf('ffb-bridge.js') < html.indexOf('viewer.js'));
+  assert.match(html, /id="ffbTestPanel"/);
+  assert.match(html, /id="btnFfbEnable"/);
+  assert.match(html, /id="btnFfbPulseNegative"/);
+  assert.match(html, /id="btnFfbPulsePositive"/);
+  assert.match(js, /const FFB_TEST_MODE = getBooleanParam\('ffbTest', false\)/);
+  assert.match(js, /const FFB_TEST_TORQUE_LIMIT = Math\.max\(0\.01, Math\.min\(0\.40/);
+  assert.match(js, /function sendFfbSteering\(\)/);
+  assert.match(js, /function pulseFfb\(direction\)/);
+  assert.match(js, /FFB_TEST_PULSE_MS/);
+  assert.match(js, /effectMode: 'constant'/);
+  assert.match(js, /window\.addEventListener\('pagehide', \(\) => \{\s*stopFfbOutput\(\);/);
+  assert.match(bridgeClient, /ws:\/\/127\.0\.0\.1:24725/);
+  assert.match(bridgeClient, /type: 'stopAll'/);
+  assert.equal(readProjectFile('variants/relay/ffb-bridge.js'), bridgeClient);
+  assert.match(readProjectFile('variants/relay/pilot.html'), /script src="\.\/ffb-bridge\.js"/);
+  assert.match(readProjectFile('variants/relay/pilot.js'), /const FFB_TEST_MODE = getBooleanParam\('ffbTest', false\)/);
 });
 
 test('automatic Ayame client ID follows the room lock policy', () => {
