@@ -6,19 +6,20 @@ Viewer HTML から localhost WebSocket を通して、Windows DirectInput の FF
 Viewer HTML -> ws://127.0.0.1:24725 -> DirectInput -> MOZA Pit House / R3
 ```
 
-## 初期ステアリング試験
+## Phase 1: 基礎操舵感
 
-最初の実装は、Viewer の現在のステアリング指令を -1 から +1 に正規化し、角度の絶対値に比例する反対向き constant force を出す。テレメトリー、車速、衝突、路面振動はまだ使わない。
+現行実装は、ステアリング角へ反対向き constant force を掛けない。これは確認用の疑似センタリングであり、車両の操舵反力ではないためである。
 
-- Viewer は `ffbTest=1` で試験パネルを表示する。
-- Bridge へ接続し、列挙したホイールを明示して Acquire する。
-- `Enable FFB` を明示操作した場合だけ出力する。
-- `Pulse −` / `Pulse +` は、連続ステアリング出力を有効にしていない時だけ使える単発確認用。既定 `0.35` を `350 ms` 出した後、必ず `stopAll` にする。
-- 250 ms 間 Viewer から更新が来なければ Bridge がゼロ出力にする。
+- Input 設定画面で `Drive On 中に FFB を有効化` を選んで Viewer を開く。
+- Viewer は Bridge へ接続し、列挙した FFB 対応ホイールを自動 Acquire する。
+- 出力は Viewer の `Drive On` 中だけで、`Drive Off` では即座に `stopAll` を送る。
+- Viewer はスロットルとブレーキから平滑化した `speedProxy` を送る。これは実車速ではない。
+- Bridge は低速ほど `Friction`、speedProxy が高いほど `Damper` を加算する。復帰 torque は停車中はゼロで、走行開始後だけ仮想前輪角に比例して滑らかに増やす。
+- 250 ms 間 Viewer から更新が来なければ Bridge が constant torque と condition effect の両方を停止する。
 - Viewer の Stop、切断、ページ離脱、Bridge 終了はすべて `stopAll` を送る。
-- Bridge の既定最大出力は `0.40`。Viewer 側の上限は既定 `0.30`。
+- Input 設定画面では、基礎/低速 friction、基礎/速度 damper、走行時センタリングをハンコンのプロファイルごとに調整できる。
 
-R3 を固定し、MOZA Pit House の最大トルクも低く設定してから試験する。車体への Drive ON と混同しない。初回は映像接続も RC DataChannel 接続も不要で、Viewer の Steering slider だけで確認できる。
+R3 を固定し、MOZA Pit House の最大トルクは運用上の安全上限に設定する。FFB は Input 設定で有効にしただけでは出ず、Momo DataChannel 接続後の Viewer `Drive On` 中にだけ出る。初回は停止状態、低速、スロットル入力時の順で抵抗変化を確認する。
 
 ## 起動
 
@@ -31,18 +32,18 @@ cd C:\src\momo-fpv-viewer\tools\ffb-bridge
 
 Viewer が `http://127.0.0.1`、`http://localhost`、または `file://` 起動なら `-ViewerOrigin` は不要。
 
-## Viewer 起動例
+## Viewer 起動
 
-```text
-http://192.168.11.4:8080/html/fpv-viewer.html#debug=1&ffbTest=1&autoStart=0&autoReconnect=0
-```
+Input 設定画面から `Viewer を開く` を使う。FFB 有効時は、選択したプロファイルの `ffbEnabled`、friction/damper 設定、`ffbUrl` が Viewer URL に反映される。
 
 Relay Variant では、Relay Viewer をこの Viewer 正本から同期してから使う。公開された GitHub Pages Viewer を FFB Bridge に許可しない。
 
 ## Bridge オプション
 
 - `--backend moza-directinput`: MOZA R3 向けの符号付き constant magnitude 出力。既定。
-- `--max-output 0.02..1.0`: Bridge 側の絶対上限。R3 の初期確認は既定 `0.40` を使い、必要なら `0.20` まで下げる。
+- `--max-output 0.02..1.0`: Bridge 側の絶対上限。既定は `1.00`。強すぎる環境だけ、起動時に明示して下げる。
+
+Pit House の機械的センタリング、ダンパー、フリクションは Phase 1 ではオフにする。Bridge は Windows AutoCenter を無効化し、基礎抵抗と速度ゲート付き復帰力を唯一のソフトウェア制御層にする。横G、スリップ、IMU路面感、衝撃は Bridge の次段階の effect layer に追加する。
 - `--allow-origin <exact-origin>`: 非 localhost Viewer を 1 つだけ許可する。複数指定できる。
 
 Bridge は `127.0.0.1` にのみ bind し、外部 PC からの接続を受けない。

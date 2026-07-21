@@ -18,7 +18,15 @@ const optionInputs = {
   brakeInvert: document.getElementById("brakeInvert"),
   steeringGain: document.getElementById("steeringGain"),
   steeringDeadzone: document.getElementById("steeringDeadzone"),
-  pedalDeadzone: document.getElementById("pedalDeadzone")
+  pedalDeadzone: document.getElementById("pedalDeadzone"),
+  ffbEnabled: document.getElementById("ffbEnabled"),
+  ffbBaseFriction: document.getElementById("ffbBaseFriction"),
+  ffbParkingFriction: document.getElementById("ffbParkingFriction"),
+  ffbBaseDamper: document.getElementById("ffbBaseDamper"),
+  ffbSpeedDamper: document.getElementById("ffbSpeedDamper"),
+  ffbRunningCentering: document.getElementById("ffbRunningCentering"),
+  ffbCenteringReverse: document.getElementById("ffbCenteringReverse"),
+  ffbBridgeUrl: document.getElementById("ffbBridgeUrl")
 };
 
 const profileApi = window.FpvGamepadProfiles;
@@ -63,6 +71,15 @@ const translations = {
     steeringGain: "Steering gain",
     steeringDeadzone: "Steering deadzone",
     pedalDeadzone: "Pedal deadzone",
+    ffbOptionsTitle: "Force feedback",
+    ffbEnabled: "Enable FFB while Drive On",
+    ffbBaseFriction: "Base friction",
+    ffbParkingFriction: "Low-speed friction",
+    ffbBaseDamper: "Base damper",
+    ffbSpeedDamper: "Speed damper",
+    ffbRunningCentering: "Running centering",
+    ffbCenteringReverse: "Reverse centering direction",
+    ffbBridgeUrl: "Bridge URL",
     captureIdle: "Capture idle",
     captureSteeringLeft: "Capture steering left",
     captureSteeringRight: "Capture steering right",
@@ -124,6 +141,15 @@ const translations = {
     steeringGain: "ステアリング感度",
     steeringDeadzone: "ステアリング遊び",
     pedalDeadzone: "ペダル遊び",
+    ffbOptionsTitle: "フォースフィードバック",
+    ffbEnabled: "Drive On 中に FFB を有効化",
+    ffbBaseFriction: "基礎フリクション",
+    ffbParkingFriction: "低速フリクション",
+    ffbBaseDamper: "基礎ダンパー",
+    ffbSpeedDamper: "速度ダンパー",
+    ffbRunningCentering: "走行時センタリング",
+    ffbCenteringReverse: "センタリング方向を反転",
+    ffbBridgeUrl: "Bridge URL",
     captureIdle: "中立を記録",
     captureSteeringLeft: "左ステアを記録",
     captureSteeringRight: "右ステアを記録",
@@ -189,6 +215,14 @@ function createDefaultMapping() {
     brakeIdle: 1,
     brakePressed: -1,
     pedalDeadzone: 0.05,
+    ffbEnabled: false,
+    ffbBaseFriction: 0.05,
+    ffbParkingFriction: 0.10,
+    ffbBaseDamper: 0.05,
+    ffbSpeedDamper: 0.15,
+    ffbRunningCentering: 0.20,
+    ffbCenteringReverse: true,
+    ffbBridgeUrl: "ws://127.0.0.1:24725",
     reverseMin: 1300,
     driveButton: null,
     paddleLeftButton: null,
@@ -323,6 +357,11 @@ function numberFromInput(input, fallback) {
   return Number.isFinite(value) ? value : fallback;
 }
 
+function stringFromInput(input, fallback) {
+  const value = String(input?.value || "").trim();
+  return value || fallback;
+}
+
 function syncOptionsFromMapping() {
   optionInputs.steeringInvert.checked = Boolean(mapping.steeringInvert);
   optionInputs.throttleInvert.checked = Boolean(mapping.throttleInvert);
@@ -330,6 +369,14 @@ function syncOptionsFromMapping() {
   optionInputs.steeringGain.value = String(mapping.steeringGain ?? 1.0);
   optionInputs.steeringDeadzone.value = String(mapping.steeringDeadzone ?? 0.03);
   optionInputs.pedalDeadzone.value = String(mapping.pedalDeadzone ?? 0.05);
+  optionInputs.ffbEnabled.checked = Boolean(mapping.ffbEnabled);
+  optionInputs.ffbBaseFriction.value = String(mapping.ffbBaseFriction ?? 0.05);
+  optionInputs.ffbParkingFriction.value = String(mapping.ffbParkingFriction ?? 0.10);
+  optionInputs.ffbBaseDamper.value = String(mapping.ffbBaseDamper ?? 0.05);
+  optionInputs.ffbSpeedDamper.value = String(mapping.ffbSpeedDamper ?? 0.15);
+  optionInputs.ffbRunningCentering.value = String(mapping.ffbRunningCentering ?? 0.20);
+  optionInputs.ffbCenteringReverse.checked = mapping.ffbCenteringReverse ?? mapping.ffbInvert !== false;
+  optionInputs.ffbBridgeUrl.value = mapping.ffbBridgeUrl || "ws://127.0.0.1:24725";
 }
 
 function syncMappingFromOptions() {
@@ -339,6 +386,14 @@ function syncMappingFromOptions() {
   mapping.steeringGain = numberFromInput(optionInputs.steeringGain, 1.0);
   mapping.steeringDeadzone = numberFromInput(optionInputs.steeringDeadzone, 0.03);
   mapping.pedalDeadzone = numberFromInput(optionInputs.pedalDeadzone, 0.05);
+  mapping.ffbEnabled = Boolean(optionInputs.ffbEnabled.checked);
+  mapping.ffbBaseFriction = clamp01(numberFromInput(optionInputs.ffbBaseFriction, 0.05));
+  mapping.ffbParkingFriction = clamp01(numberFromInput(optionInputs.ffbParkingFriction, 0.10));
+  mapping.ffbBaseDamper = clamp01(numberFromInput(optionInputs.ffbBaseDamper, 0.05));
+  mapping.ffbSpeedDamper = clamp01(numberFromInput(optionInputs.ffbSpeedDamper, 0.15));
+  mapping.ffbRunningCentering = clamp01(numberFromInput(optionInputs.ffbRunningCentering, 0.20));
+  mapping.ffbCenteringReverse = Boolean(optionInputs.ffbCenteringReverse.checked);
+  mapping.ffbBridgeUrl = stringFromInput(optionInputs.ffbBridgeUrl, "ws://127.0.0.1:24725");
 }
 
 function buildViewerUrl() {
@@ -385,6 +440,24 @@ function buildViewerUrl() {
   }
   if (mapping.paddleRightButton !== null) {
     params.set("gamepadPaddleRightButton", String(mapping.paddleRightButton));
+  }
+  params.set("ffbEnabled", mapping.ffbEnabled ? "1" : "0");
+  if (mapping.ffbEnabled) {
+    params.set("ffbBaseFriction", String(mapping.ffbBaseFriction ?? 0.05));
+    params.set("ffbParkingFriction", String(mapping.ffbParkingFriction ?? 0.10));
+    params.set("ffbBaseDamper", String(mapping.ffbBaseDamper ?? 0.05));
+    params.set("ffbSpeedDamper", String(mapping.ffbSpeedDamper ?? 0.15));
+    params.set("ffbRunningCentering", String(mapping.ffbRunningCentering ?? 0.20));
+    params.set("ffbCenteringReverse", mapping.ffbCenteringReverse ? "1" : "0");
+    params.set("ffbUrl", mapping.ffbBridgeUrl || "ws://127.0.0.1:24725");
+  } else {
+    params.delete("ffbBaseFriction");
+    params.delete("ffbParkingFriction");
+    params.delete("ffbBaseDamper");
+    params.delete("ffbSpeedDamper");
+    params.delete("ffbRunningCentering");
+    params.delete("ffbCenteringReverse");
+    params.delete("ffbUrl");
   }
   url.search = "";
   url.hash = params.toString();

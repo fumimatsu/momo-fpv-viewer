@@ -147,6 +147,33 @@
       background: #10151b;
     }
 
+    .mapping-options input[type="text"] {
+      width: min(300px, 68vw);
+      min-height: 30px;
+      padding: 0 8px;
+      color: #f4f6f8;
+      border: 1px solid #46515f;
+      border-radius: 6px;
+      background: #10151b;
+    }
+
+    .ffb-options {
+      margin: 0 0 18px;
+      padding: 14px;
+      border: 1px solid #39424d;
+      border-radius: 8px;
+      background: #171b20;
+    }
+
+    .ffb-options h2 {
+      margin: 0 0 10px;
+      font-size: 16px;
+    }
+
+    .ffb-options .toolbar {
+      margin-bottom: 0;
+    }
+
     .assign-status {
       color: #7adf8f;
       font-family: Consolas, monospace;
@@ -337,6 +364,19 @@
     <label><span data-i18n="steeringDeadzone">Steering deadzone</span> <input id="steeringDeadzone" type="number" min="0" max="0.5" step="0.01" value="0.03"></label>
     <label><span data-i18n="pedalDeadzone">Pedal deadzone</span> <input id="pedalDeadzone" type="number" min="0" max="0.5" step="0.01" value="0.05"></label>
   </div>
+  <section class="ffb-options" aria-labelledby="ffbOptionsTitle">
+    <h2 id="ffbOptionsTitle" data-i18n="ffbOptionsTitle">Force feedback</h2>
+    <div class="toolbar mapping-options">
+      <label><input id="ffbEnabled" type="checkbox"> <span data-i18n="ffbEnabled">Enable FFB while Drive On</span></label>
+      <label><span data-i18n="ffbBaseFriction">Base friction</span> <input id="ffbBaseFriction" type="number" min="0" max="1" step="0.01" value="0.05"></label>
+      <label><span data-i18n="ffbParkingFriction">Low-speed friction</span> <input id="ffbParkingFriction" type="number" min="0" max="1" step="0.01" value="0.10"></label>
+      <label><span data-i18n="ffbBaseDamper">Base damper</span> <input id="ffbBaseDamper" type="number" min="0" max="1" step="0.01" value="0.05"></label>
+      <label><span data-i18n="ffbSpeedDamper">Speed damper</span> <input id="ffbSpeedDamper" type="number" min="0" max="1" step="0.01" value="0.15"></label>
+      <label><span data-i18n="ffbRunningCentering">Running centering</span> <input id="ffbRunningCentering" type="number" min="0" max="1" step="0.01" value="0.20"></label>
+      <label><input id="ffbCenteringReverse" type="checkbox" checked> <span data-i18n="ffbCenteringReverse">Reverse centering direction</span></label>
+      <label><span data-i18n="ffbBridgeUrl">Bridge URL</span> <input id="ffbBridgeUrl" type="text" inputmode="url" value="ws://127.0.0.1:24725" autocomplete="off" spellcheck="false"></label>
+    </div>
+  </section>
   <div class="toolbar">
     <button class="captureButton" type="button" data-label="idle" data-i18n="captureIdle">Capture idle</button>
     <button class="captureButton" type="button" data-label="steering_left" data-i18n="captureSteeringLeft">Capture steering left</button>
@@ -352,6 +392,6 @@
     <pre id="mappingOutput">{}</pre>
   </section>
   <script src="./gamepad-profile.js?v=20260711-gamepad-profiles"></script>
-  <script src="./gamepad.js?v=20260711-gamepad-profiles"></script>
+  <script src="./gamepad.js?v=20260722-ffb-baseline"></script>
 </body>
 </html>

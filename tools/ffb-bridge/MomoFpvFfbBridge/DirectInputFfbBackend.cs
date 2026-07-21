@@ -221,15 +221,13 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
         {
             if (_device is null || _constantForce is null) return;
             if (_lastFfbAt == DateTimeOffset.MinValue) return;
-            if (Math.Abs(_lastTorque) < 0.0001) return;
+            if (Math.Abs(_lastTorque) < 0.0001 && _lastDamper <= 0.0001 && _lastFriction <= 0.0001) return;
             if (DateTimeOffset.UtcNow - _lastFfbAt <= timeout) return;
 
             try
             {
-                // ブラウザから一定時間 `setFfb` が来なければ、通信切れとみなして力を抜きます。
-                SetForceLocked(0, _effectMode);
-                _lastTorque = 0;
-                _clipped = false;
+                // torque だけでなく condition effect も残さず停止する。
+                StopAllLocked();
             }
             catch
             {

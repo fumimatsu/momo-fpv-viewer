@@ -11,8 +11,9 @@ internal sealed record BridgeConfig(
     {
         var host = "127.0.0.1";
         var port = 24725;
-        // 初回実機試験は必ず低出力から始める。Viewer 側の値だけに依存しない。
-        var maxOutput = 0.40;
+        // Bridge は 1.0 を基準にする。実際のセンタリング強度は Viewer が調整し、
+        // 必要な場合だけ起動引数で Bridge 側に明示上限を設ける。
+        var maxOutput = 1.0;
         var backend = "directinput";
         var allowedOrigins = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 

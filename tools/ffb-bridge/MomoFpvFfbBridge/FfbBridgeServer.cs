@@ -12,7 +12,9 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
 {
     private const int Protocol = 1;
     private const string BridgeName = "Momo FPV FFB Bridge";
-    private const string BridgeVersion = "0.1.0-steering-test";
+    private const string BridgeVersion = "0.2.0-baseline";
+    private const double CenteringStartSpeed = 0.08;
+    private const double CenteringFullSpeed = 0.65;
     private static readonly TimeSpan FfbTimeout = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan StatusMinInterval = TimeSpan.FromMilliseconds(90);
 
@@ -209,16 +211,44 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
                         break;
                     }
 
-                    // ここがブラウザからFFB命令を受ける中心です。
-                    // torqueは -1..+1、damper/friction/inertiaは 0..1 の想定です。
+                    // baseline は throttle 由来の speedProxy と仮想前輪角を受け、effect 合成は Bridge 側で行う。
+                    // telemetry の rack / road / impact effect は次段階で同じ入力点に追加する。
+                    var effectMode = ReadString(root, "effectMode", "constant");
+                    var torque = ReadDouble(root, "torque", 0);
+                    var damper = ReadDouble(root, "damper", 0);
+                    var friction = ReadDouble(root, "friction", 0);
+                    var inertia = ReadDouble(root, "inertia", 0);
+                    if (string.Equals(effectMode, "baseline", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var speed = ClampUnit(ReadDouble(root, "speedProxy", 0));
+                        var baseFriction = ClampUnit(ReadDouble(root, "baseFriction", 0.05));
+                        var parkingFriction = ClampUnit(ReadDouble(root, "parkingFriction", 0.10));
+                        var baseDamper = ClampUnit(ReadDouble(root, "baseDamper", 0.05));
+                        var speedDamper = ClampUnit(ReadDouble(root, "speedDamper", 0.15));
+                        var lowSpeed = 1.0 - speed;
+
+                        var virtualSteering = ClampSignedUnit(ReadDouble(root, "virtualSteering", 0));
+                        var runningCentering = ClampUnit(ReadDouble(root, "runningCentering", 0.20));
+                        var centeringDirection = ReadBool(root, "centeringReverse", true) ? -1.0 : 1.0;
+                        var centeringWeight = SmoothStep(speed, CenteringStartSpeed, CenteringFullSpeed);
+
+                        // 停車時の重さは friction、走行中の粘りは damper で作る。
+                        // 復帰力は走行開始後だけ立ち上げ、後に車両テレメトリ由来のラック荷重へ置き換える。
+                        torque = ClampSignedUnit(virtualSteering * runningCentering * centeringWeight * centeringDirection);
+                        friction = ClampUnit(baseFriction + parkingFriction * lowSpeed * lowSpeed);
+                        damper = ClampUnit(baseDamper + speedDamper * speed * speed);
+                        inertia = 0;
+                        effectMode = "constant";
+                    }
+
                     _backend.SetFfb(
-                        ReadDouble(root, "torque", 0),
+                        torque,
                         ReadDouble(root, "gain", 1),
                         ReadBool(root, "enabled", false),
-                        ReadString(root, "effectMode", "constant"),
-                        ReadDouble(root, "damper", 0),
-                        ReadDouble(root, "friction", 0),
-                        ReadDouble(root, "inertia", 0));
+                        effectMode,
+                        damper,
+                        friction,
+                        inertia);
                     await SendStatusAsync(webSocket, state, "", force: false, token);
                     break;
                 }
@@ -258,6 +288,7 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
             axisName = status.AxisName,
             effectMode = status.EffectMode,
             backend = _backend.BackendName,
+            maxOutput = _config.MaxOutput,
             deviceLost = status.DeviceLost,
             message = status.Message
         }, token);
@@ -368,6 +399,22 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
         return value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var number) && double.IsFinite(number)
             ? number
             : fallback;
+    }
+
+    private static double ClampUnit(double value)
+    {
+        return Math.Clamp(double.IsFinite(value) ? value : 0, 0, 1);
+    }
+
+    private static double ClampSignedUnit(double value)
+    {
+        return Math.Clamp(double.IsFinite(value) ? value : 0, -1, 1);
+    }
+
+    private static double SmoothStep(double value, double start, double end)
+    {
+        var normalized = ClampUnit((value - start) / Math.Max(0.0001, end - start));
+        return normalized * normalized * (3 - 2 * normalized);
     }
 
     public ValueTask DisposeAsync()

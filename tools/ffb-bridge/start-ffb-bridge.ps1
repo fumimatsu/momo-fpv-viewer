@@ -3,7 +3,7 @@ param(
     [ValidateSet('directinput', 'moza-directinput')]
     [string]$Backend = 'moza-directinput',
     [ValidateRange(0.02, 1.0)]
-    [double]$MaxOutput = 0.40
+    [double]$MaxOutput = 1.0
 )
 
 $ErrorActionPreference = 'Stop'
