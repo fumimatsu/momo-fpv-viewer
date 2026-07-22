@@ -1,7 +1,7 @@
 param(
     [string]$ViewerOrigin = '',
-    [ValidateSet('directinput', 'moza-directinput')]
-    [string]$Backend = 'moza-directinput',
+    [ValidateSet('auto', 'directinput', 'moza-directinput')]
+    [string]$Backend = 'auto',
     [ValidateRange(0.02, 1.0)]
     [double]$MaxOutput = 1.0
 )

@@ -25,11 +25,6 @@ finally
 
 static IFfbBackend CreateBackend(BridgeConfig config)
 {
-    // MOZA R3では通常のDirectInput方向指定ではなく、符号付きmagnitudeで出した方が
-    // 左右の極性が安定したため、専用モードとして分けています。SDKは使っていません。
-    return config.Backend switch
-    {
-        "moza-directinput" => new DirectInputFfbBackend(config.MaxOutput, DirectInputForceSignMode.SignedConstantMagnitude),
-        _ => new DirectInputFfbBackend(config.MaxOutput)
-    };
+    // auto は接続デバイスの互換プロファイルで選ぶ。明示指定は試験・切り分け用に残す。
+    return new DirectInputFfbBackend(config.MaxOutput, config.Backend);
 }

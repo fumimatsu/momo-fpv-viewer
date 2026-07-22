@@ -187,6 +187,8 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
                         deviceId = result.DeviceId,
                         ok = result.Ok,
                         exclusive = result.Exclusive,
+                        profile = result.Profile,
+                        capabilities = result.Capabilities,
                         inputStreaming = ReadBool(root, "inputStreaming", false)
                     }, token);
                     if (!result.Ok)
@@ -287,6 +289,8 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
             axisOffset = status.AxisOffset,
             axisName = status.AxisName,
             effectMode = status.EffectMode,
+            profile = status.Profile,
+            capabilities = status.Capabilities,
             backend = _backend.BackendName,
             maxOutput = _config.MaxOutput,
             deviceLost = status.DeviceLost,

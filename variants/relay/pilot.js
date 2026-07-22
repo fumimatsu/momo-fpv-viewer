@@ -1401,7 +1401,7 @@
       return;
     }
     if (!state.acquired) {
-      const device = devices.find((candidate) => candidate?.isFfbCapable) || devices[0];
+      const device = devices.find((candidate) => candidate?.isFfbCapable && supportsConstantForce(candidate.capabilities));
       const deviceId = String(device?.id || '');
       if (deviceId && ffbAcquireRequestedDeviceId !== deviceId) {
         ffbAcquireRequestedDeviceId = deviceId;
@@ -1425,6 +1425,7 @@
     }
     const vehicleState = updateFfbVehicleState();
     const preset = FFB_PRESETS[activeFfbPreset];
+    const capabilities = getFfbCapabilities(snapshot.deviceCapabilities);
     ffbClient.sendFfb({
       torque: 0,
       gain: 1,
@@ -1432,10 +1433,10 @@
       effectMode: 'baseline',
       speedProxy: vehicleState.speedProxy,
       virtualSteering: vehicleState.virtualSteering,
-      baseFriction: FFB_BASE_FRICTION * preset.scale,
-      parkingFriction: FFB_PARKING_FRICTION * preset.scale,
-      baseDamper: FFB_BASE_DAMPER * preset.scale,
-      speedDamper: FFB_SPEED_DAMPER * preset.scale,
+      baseFriction: capabilities.friction ? FFB_BASE_FRICTION * preset.scale : 0,
+      parkingFriction: capabilities.friction ? FFB_PARKING_FRICTION * preset.scale : 0,
+      baseDamper: capabilities.damper ? FFB_BASE_DAMPER * preset.scale : 0,
+      speedDamper: capabilities.damper ? FFB_SPEED_DAMPER * preset.scale : 0,
       runningCentering: FFB_RUNNING_CENTERING * preset.scale,
       centeringReverse: FFB_CENTERING_REVERSE,
       damper: 0,
@@ -1457,6 +1458,21 @@
   function normalizeFfbPreset(value) {
     const preset = String(value || '').toLowerCase();
     return Object.prototype.hasOwnProperty.call(FFB_PRESETS, preset) ? preset : 'medium';
+  }
+
+  function getFfbCapabilities(value) {
+    if (!value || value.effectsEnumerated !== true) {
+      return { constantForce: true, friction: true, damper: true };
+    }
+    return {
+      constantForce: value.constantForce === true,
+      friction: value.friction === true,
+      damper: value.damper === true,
+    };
+  }
+
+  function supportsConstantForce(value) {
+    return getFfbCapabilities(value).constantForce;
   }
 
   function updateFfbPresetControls() {
@@ -3823,7 +3839,13 @@
         driveButton: GAMEPAD_DRIVE_BUTTON,
         paddleLeftButton: GAMEPAD_PADDLE_LEFT_BUTTON,
         paddleRightButton: GAMEPAD_PADDLE_RIGHT_BUTTON,
+        ffbPresetButton: GAMEPAD_FFB_PRESET_BUTTON,
         profileId: GAMEPAD_PROFILE.id || '',
+      },
+      ffb: {
+        enabled: FFB_ENABLED,
+        activePreset: activeFfbPreset,
+        bridge: ffbClient?.snapshot?.() || null,
       },
     }),
     getPeerConnection: () => peerConnection,

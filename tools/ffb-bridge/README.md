@@ -6,6 +6,30 @@ Viewer HTML から localhost WebSocket を通して、Windows DirectInput の FF
 Viewer HTML -> ws://127.0.0.1:24725 -> DirectInput -> MOZA Pit House / R3
 ```
 
+## デバイス互換性
+
+起動スクリプトの既定 backend は `auto` である。Bridge は DirectInput のデバイス名、
+VID/PID、対応するフォースフィードバック effect を読み取り、互換プロファイルを選択する。
+
+| Device | Profile | DirectInput force sign |
+| --- | --- | --- |
+| MOZA R3 | `moza-r3` | Signed constant magnitude |
+| Thrustmaster T300 | `thrustmaster-t300` | Direction vector |
+| Logitech G29 | `logitech-g29` | Direction vector |
+| Logitech G923 (PC mode) | `logitech-g923` | Direction vector |
+| その他のデバイス | `generic-directinput` | Direction vector |
+
+- `Constant Force` は必須である。これを公開しないデバイスは自動取得しない。
+- `Friction` と `Damper` は任意である。非対応 effect だけを個別に無効化し、
+  Constant Force に対応していれば走行時センタリング torque は継続する。
+- 組み込みプロファイルの一致には、想定する Vendor ID に加えて製品名の一致を要求する。
+  実機の VID/PID は `listDevices` から記録し、確認後に Product ID 固定プロファイルへ昇格する。
+- ドライバ診断時は、`-Backend directinput` と `-Backend moza-directinput` で
+  符号方式を明示指定できる。
+
+Viewer が Bridge へ接続した後、ブラウザコンソールで
+`window.fpvViewer.getDiagnostics().ffb.bridge.devices` を実行すると、認識したデバイス情報を確認できる。
+
 ## Phase 1: 基礎操舵感
 
 現行実装は、ステアリング角へ反対向き constant force を掛けない。これは確認用の疑似センタリングであり、車両の操舵反力ではないためである。

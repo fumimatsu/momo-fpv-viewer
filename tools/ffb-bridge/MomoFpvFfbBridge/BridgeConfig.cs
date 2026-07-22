@@ -14,7 +14,7 @@ internal sealed record BridgeConfig(
         // Bridge は 1.0 を基準にする。実際のセンタリング強度は Viewer が調整し、
         // 必要な場合だけ起動引数で Bridge 側に明示上限を設ける。
         var maxOutput = 1.0;
-        var backend = "directinput";
+        var backend = "auto";
         var allowedOrigins = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         for (var i = 0; i < args.Length; i++)
@@ -63,9 +63,10 @@ internal sealed record BridgeConfig(
     private static string NormalizeBackend(string? value)
     {
         // この参考版ではMOZA SDK backendを意図的に除外しています。
-        // R3で使う場合もDirectInput経由なので `moza-directinput` だけを残します。
+        // auto は接続したDirectInputデバイスの互換プロファイルから符号方式を選ぶ。
         return (value ?? "").Trim().ToLowerInvariant() switch
         {
+            "auto" => "auto",
             "di" => "directinput",
             "directinput" => "directinput",
             "moza-di" => "moza-directinput",

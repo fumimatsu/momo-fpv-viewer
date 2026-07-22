@@ -11,7 +11,24 @@ internal sealed record BridgeDevice(
     bool IsFfbCapable,
     bool IsLikelyWheel,
     int AxisCount,
-    int ButtonCount);
+    int ButtonCount,
+    FfbEffectCapabilities Capabilities,
+    DeviceCompatibilityProfile Profile);
+
+internal sealed record FfbEffectCapabilities(
+    bool ConstantForce,
+    bool Friction,
+    bool Damper,
+    bool EffectsEnumerated)
+{
+    public static readonly FfbEffectCapabilities None = new(false, false, false, false);
+}
+
+internal sealed record DeviceCompatibilityProfile(
+    string Id,
+    string Label,
+    DirectInputForceSignMode SignMode,
+    bool IsKnown);
 
 internal sealed record BackendStatus(
     bool Ok,
@@ -23,13 +40,17 @@ internal sealed record BackendStatus(
     string Message,
     int AxisOffset,
     string AxisName,
-    string EffectMode);
+    string EffectMode,
+    DeviceCompatibilityProfile Profile,
+    FfbEffectCapabilities Capabilities);
 
 internal sealed record AcquireResult(
     bool Ok,
     string DeviceId,
     bool Exclusive,
-    string Message);
+    string Message,
+    DeviceCompatibilityProfile Profile,
+    FfbEffectCapabilities Capabilities);
 
 internal enum DirectInputForceSignMode
 {
@@ -39,6 +60,43 @@ internal enum DirectInputForceSignMode
     // MOZA R3で安定した方式: directionは固定し、ConstantForce.Magnitude側に符号を持たせます。
     // MOZA SDKではなく、あくまでDirectInputの投げ方の違いです。
     SignedConstantMagnitude
+}
+
+internal static class FfbDeviceCompatibility
+{
+    public static readonly DeviceCompatibilityProfile Generic = new(
+        "generic-directinput",
+        "Generic DirectInput",
+        DirectInputForceSignMode.DirectionVector,
+        false);
+
+    private static readonly (string Id, string Label, string VendorId, string[] NameTokens, DirectInputForceSignMode SignMode)[] KnownProfiles =
+    {
+        ("moza-r3", "MOZA R3", "346E", new[] { "moza r3" }, DirectInputForceSignMode.SignedConstantMagnitude),
+        ("thrustmaster-t300", "Thrustmaster T300", "044F", new[] { "t300", "t-300" }, DirectInputForceSignMode.DirectionVector),
+        ("logitech-g29", "Logitech G29", "046D", new[] { "g29" }, DirectInputForceSignMode.DirectionVector),
+        ("logitech-g923", "Logitech G923", "046D", new[] { "g923" }, DirectInputForceSignMode.DirectionVector),
+    };
+
+    public static DeviceCompatibilityProfile Resolve(string? name, string? vendorId, string? productId)
+    {
+        var normalizedName = (name ?? "").Trim().ToLowerInvariant();
+        var normalizedVendorId = (vendorId ?? "").Trim().ToUpperInvariant();
+
+        // PIDは診断結果として収集する。実機で確認できるまでは、同一メーカーの別製品を
+        // 誤って固定プロファイルへ分類しないよう、VIDと製品名の組み合わせを使う。
+
+        foreach (var candidate in KnownProfiles)
+        {
+            var vendorMatches = candidate.VendorId.Equals(normalizedVendorId, StringComparison.OrdinalIgnoreCase);
+            var nameMatches = candidate.NameTokens.Any(token => normalizedName.Contains(token, StringComparison.Ordinal));
+            if (!vendorMatches || !nameMatches) continue;
+
+            return new DeviceCompatibilityProfile(candidate.Id, candidate.Label, candidate.SignMode, true);
+        }
+
+        return Generic;
+    }
 }
 
 internal sealed class DirectInputFfbBackend : IFfbBackend
@@ -52,7 +110,8 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
     private readonly IDirectInput8 _directInput;
     private readonly HiddenDirectInputWindow _window;
     private readonly double _maxOutput;
-    private readonly DirectInputForceSignMode _signMode;
+    private readonly string _backendMode;
+    private DirectInputForceSignMode _signMode;
 
     private IDirectInputDevice8? _device;
     private IDirectInputEffect? _constantForce;
@@ -70,12 +129,17 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
     private int _ffbAxisOffset = AxisOffsetX;
     private string _ffbAxisName = "X Axis";
     private string _effectMode = "constant";
+    private DeviceCompatibilityProfile _profile = FfbDeviceCompatibility.Generic;
+    private FfbEffectCapabilities _capabilities = FfbEffectCapabilities.None;
     private DateTimeOffset _lastFfbAt = DateTimeOffset.MinValue;
 
-    public DirectInputFfbBackend(double maxOutput, DirectInputForceSignMode signMode = DirectInputForceSignMode.DirectionVector)
+    public DirectInputFfbBackend(double maxOutput, string backendMode = "auto")
     {
         _maxOutput = Math.Clamp(maxOutput, 0.02, 1.0);
-        _signMode = signMode;
+        _backendMode = NormalizeBackendMode(backendMode);
+        _signMode = _backendMode == "moza-directinput"
+            ? DirectInputForceSignMode.SignedConstantMagnitude
+            : DirectInputForceSignMode.DirectionVector;
         _directInput = DInput.DirectInput8Create();
         _window = new HiddenDirectInputWindow();
     }
@@ -110,7 +174,7 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
             var selected = SelectDevice(devices, requestedDeviceId);
             if (selected is null)
             {
-                return new AcquireResult(false, requestedDeviceId ?? "", false, "DirectInput FFB device not found.");
+                return new AcquireResult(false, requestedDeviceId ?? "", false, "DirectInput FFB device not found.", _profile, _capabilities);
             }
 
             try
@@ -138,12 +202,19 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
                 _device = device;
                 _deviceId = selected.InstanceGuid.ToString("D");
                 _exclusive = (level & CooperativeLevel.Exclusive) != 0;
+                var name = string.IsNullOrWhiteSpace(selected.ProductName) ? selected.InstanceName : selected.ProductName;
+                var vendorId = ToHex4(device.Properties.VendorId);
+                var productId = ToHex4(device.Properties.ProductId);
+                _profile = FfbDeviceCompatibility.Resolve(name, vendorId, productId);
+                _signMode = ResolveSignMode(_profile);
+                _capabilities = ReadEffectCapabilities(device);
                 // どの軸にFFBを出すかを決めます。基本はステアリングのX軸です。
                 SelectForceFeedbackAxisLocked(device);
                 _effectMode = "constant";
                 // 常時更新できるよう、長時間のconstant force effectを開始しておきます。
                 _constantForce = CreateForceEffect(_effectMode, 0);
                 _constantForce.Start(-1);
+                _capabilities = _capabilities with { ConstantForce = true };
                 _damperUnavailable = false;
                 _frictionUnavailable = false;
                 _lastTorque = 0;
@@ -153,12 +224,14 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
                 _deviceLost = false;
                 _lastFfbAt = DateTimeOffset.UtcNow;
 
-                return new AcquireResult(true, _deviceId, _exclusive, "acquired");
+                return new AcquireResult(true, _deviceId, _exclusive, "acquired", _profile, _capabilities);
             }
             catch (Exception ex)
             {
+                var profile = _profile;
+                var capabilities = _capabilities;
                 ReleaseLocked(stopAll: true);
-                return new AcquireResult(false, selected.InstanceGuid.ToString("D"), false, ex.Message);
+                return new AcquireResult(false, selected.InstanceGuid.ToString("D"), false, ex.Message, profile, capabilities);
             }
         }
     }
@@ -253,6 +326,7 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
         var vendorId = "";
         var productId = "";
         var isFfb = instance.ForceFeedbackDriverGuid != Guid.Empty;
+        var capabilities = FfbEffectCapabilities.None;
 
         try
         {
@@ -263,6 +337,8 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
             isFfb = isFfb || (caps.Flags & DeviceFlags.ForceFeedback) != 0;
             vendorId = ToHex4(device.Properties.VendorId);
             productId = ToHex4(device.Properties.ProductId);
+            capabilities = ReadEffectCapabilities(device);
+            isFfb = isFfb || capabilities.ConstantForce || capabilities.Friction || capabilities.Damper;
         }
         catch
         {
@@ -270,6 +346,7 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
         }
 
         var likelyWheel = LooksLikeWheel(name, instance.Type);
+        var profile = FfbDeviceCompatibility.Resolve(name, vendorId, productId);
         return new BridgeDevice(
             instance.InstanceGuid.ToString("D"),
             name,
@@ -278,7 +355,47 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
             isFfb,
             likelyWheel,
             axisCount,
-            buttonCount);
+            buttonCount,
+            capabilities,
+            profile);
+    }
+
+    private static FfbEffectCapabilities ReadEffectCapabilities(IDirectInputDevice8 device)
+    {
+        try
+        {
+            var effectGuids = device.GetEffects().Select(effect => effect.Guid).ToHashSet();
+            return new FfbEffectCapabilities(
+                effectGuids.Contains(EffectGuid.ConstantForce),
+                effectGuids.Contains(EffectGuid.Friction),
+                effectGuids.Contains(EffectGuid.Damper),
+                true);
+        }
+        catch
+        {
+            // 一部のドライバはAcquire前のeffect列挙を拒否する。Acquire時のCreateEffectで最終判定する。
+            return FfbEffectCapabilities.None;
+        }
+    }
+
+    private DirectInputForceSignMode ResolveSignMode(DeviceCompatibilityProfile profile)
+    {
+        return _backendMode switch
+        {
+            "moza-directinput" => DirectInputForceSignMode.SignedConstantMagnitude,
+            "directinput" => DirectInputForceSignMode.DirectionVector,
+            _ => profile.SignMode,
+        };
+    }
+
+    private static string NormalizeBackendMode(string? backendMode)
+    {
+        return (backendMode ?? "").Trim().ToLowerInvariant() switch
+        {
+            "directinput" => "directinput",
+            "moza-directinput" => "moza-directinput",
+            _ => "auto",
+        };
     }
 
     private DeviceInstance? SelectDevice(IEnumerable<DeviceInstance> devices, string? requestedDeviceId)
@@ -365,6 +482,16 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
         // 非対応デバイスもあるため、失敗した場合は以後そのeffectを無効扱いにします。
         var damperAmount = ClampFinite(damper + inertia * 0.35, 0, 1);
         var frictionAmount = ClampFinite(friction, 0, 1);
+        if (_capabilities.EffectsEnumerated && !_capabilities.Damper)
+        {
+            _damperUnavailable = true;
+            _lastDamper = 0;
+        }
+        if (_capabilities.EffectsEnumerated && !_capabilities.Friction)
+        {
+            _frictionUnavailable = true;
+            _lastFriction = 0;
+        }
         SetConditionEffectLocked(
             ref _damperEffect,
             EffectGuid.Damper,
@@ -571,6 +698,9 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
         _device = null;
         _deviceId = "";
         _exclusive = false;
+        _profile = FfbDeviceCompatibility.Generic;
+        _capabilities = FfbEffectCapabilities.None;
+        _signMode = ResolveSignMode(_profile);
         _lastTorque = 0;
         _lastDamper = 0;
         _lastFriction = 0;
@@ -588,7 +718,9 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
             Message: message,
             AxisOffset: _ffbAxisOffset,
             AxisName: _ffbAxisName,
-            EffectMode: _effectMode);
+            EffectMode: _effectMode,
+            Profile: _profile,
+            Capabilities: _capabilities);
     }
 
     private static bool LooksLikeWheel(string? name, DeviceType type)
@@ -598,7 +730,12 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
             || text.Contains("g25")
             || text.Contains("g27")
             || text.Contains("g29")
+            || text.Contains("g923")
             || text.Contains("g920")
+            || text.Contains("t300")
+            || text.Contains("t-300")
+            || text.Contains("thrustmaster")
+            || text.Contains("moza")
             || text.Contains("racing")
             || text.Contains("wheel");
     }

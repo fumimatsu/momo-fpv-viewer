@@ -184,6 +184,8 @@ test('FFB presets are configured from the input setup and selectable in the View
   const relayJs = readProjectFile('variants/relay/pilot.js');
   const bridgeServer = readProjectFile('tools/ffb-bridge/MomoFpvFfbBridge/FfbBridgeServer.cs');
   const backend = readProjectFile('tools/ffb-bridge/MomoFpvFfbBridge/DirectInputFfbBackend.cs');
+  const bridgeConfig = readProjectFile('tools/ffb-bridge/MomoFpvFfbBridge/BridgeConfig.cs');
+  const bridgeLauncher = readProjectFile('tools/ffb-bridge/start-ffb-bridge.ps1');
   assert.ok(html.indexOf('ffb-bridge.js') < html.indexOf('viewer.js'));
   assert.doesNotMatch(html, /id="ffbTestPanel"/);
   assert.doesNotMatch(relayHtml, /id="ffbTestPanel"/);
@@ -229,6 +231,9 @@ test('FFB presets are configured from the input setup and selectable in the View
   assert.match(js, /runningCentering: FFB_RUNNING_CENTERING \* preset\.scale/);
   assert.match(js, /function cycleFfbPreset\(\)/);
   assert.match(js, /cycleFfbPreset\(\);/);
+  assert.match(js, /supportsConstantForce\(candidate\.capabilities\)/);
+  assert.match(js, /baseFriction: capabilities\.friction \? FFB_BASE_FRICTION \* preset\.scale : 0/);
+  assert.match(js, /baseDamper: capabilities\.damper \? FFB_BASE_DAMPER \* preset\.scale : 0/);
   assert.match(js, /window\.addEventListener\('pagehide', \(\) => \{\s*stopFfbOutput\(\);/);
   assert.match(bridgeClient, /ws:\/\/127\.0\.0\.1:24725/);
   assert.match(bridgeClient, /type: 'stopAll'/);
@@ -237,6 +242,8 @@ test('FFB presets are configured from the input setup and selectable in the View
   assert.match(relayJs, /const FFB_ENABLED = getBooleanParam\('ffbEnabled', getBooleanParam\('ffbTest', false\)\)/);
   assert.match(relayJs, /const FFB_PRESETS = Object\.freeze\(/);
   assert.match(relayHtml, /id="ffbPresetControls"/);
+  assert.match(relayJs, /supportsConstantForce\(candidate\.capabilities\)/);
+  assert.match(bridgeClient, /deviceCapabilities/);
   assert.match(relayJs, /function updateFfbVehicleState\(\)/);
   assert.match(bridgeServer, /string\.Equals\(effectMode, "baseline", StringComparison\.OrdinalIgnoreCase\)/);
   assert.match(bridgeServer, /ReadDouble\(root, "baseFriction", 0\.10\)/);
@@ -247,6 +254,13 @@ test('FFB presets are configured from the input setup and selectable in the View
   assert.match(bridgeServer, /private static double SmoothStep\(/);
   assert.match(backend, /Math\.Abs\(_lastTorque\) < 0\.0001 && _lastDamper <= 0\.0001 && _lastFriction <= 0\.0001/);
   assert.match(backend, /StopAllLocked\(\);/);
+  assert.match(backend, /\("moza-r3", "MOZA R3", "346E"/);
+  assert.match(backend, /\("thrustmaster-t300", "Thrustmaster T300", "044F"/);
+  assert.match(backend, /\("logitech-g29", "Logitech G29", "046D"/);
+  assert.match(backend, /\("logitech-g923", "Logitech G923", "046D"/);
+  assert.match(backend, /device\.GetEffects\(\)/);
+  assert.match(bridgeConfig, /var backend = "auto"/);
+  assert.match(bridgeLauncher, /\[string\]\$Backend = 'auto'/);
 });
 
 test('automatic Ayame client ID follows the room lock policy', () => {
