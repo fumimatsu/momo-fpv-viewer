@@ -66,12 +66,12 @@
   const DC_PING_ENABLED = getBooleanParam('dcPing', false);
   const DC_PING_INTERVAL_MS = getNumberParam('dcPingMs', 1000);
   // ffbTest は過去の検証 URL 向けの互換名。通常は gamepad.html の ffbEnabled を使う。
-  const FFB_ENABLED = getBooleanParam('ffbEnabled', getBooleanParam('ffbTest', false));
-  const FFB_BRIDGE_URL = getStringParam('ffbUrl', 'ws://127.0.0.1:24725');
-  const FFB_BASE_FRICTION = Math.max(0, Math.min(1.0, getNumberParam('ffbBaseFriction', 0.28)));
-  const FFB_PARKING_FRICTION = Math.max(0, Math.min(1.0, getNumberParam('ffbParkingFriction', 0.08)));
-  const FFB_BASE_DAMPER = Math.max(0, Math.min(1.0, getNumberParam('ffbBaseDamper', 0.05)));
-  const FFB_SPEED_DAMPER = Math.max(0, Math.min(1.0, getNumberParam('ffbSpeedDamper', 0.15)));
+  const FFB_ENABLED = getBooleanParamWithProfile('ffbEnabled', 'ffbEnabled', getBooleanParam('ffbTest', false));
+  const FFB_BRIDGE_URL = getStringParam('ffbUrl', GAMEPAD_PROFILE?.ffbBridgeUrl || 'ws://127.0.0.1:24725');
+  const FFB_BASE_FRICTION = Math.max(0, Math.min(1.0, getNumberParamWithProfile('ffbBaseFriction', 'ffbBaseFriction', 0.28)));
+  const FFB_PARKING_FRICTION = Math.max(0, Math.min(1.0, getNumberParamWithProfile('ffbParkingFriction', 'ffbParkingFriction', 0.08)));
+  const FFB_BASE_DAMPER = Math.max(0, Math.min(1.0, getNumberParamWithProfile('ffbBaseDamper', 'ffbBaseDamper', 0.05)));
+  const FFB_SPEED_DAMPER = Math.max(0, Math.min(1.0, getNumberParamWithProfile('ffbSpeedDamper', 'ffbSpeedDamper', 0.15)));
   const FFB_PRESETS = Object.freeze({
     weak: Object.freeze({ scale: 0.65, label: 'Weak' }),
     medium: Object.freeze({ scale: 1.00, label: 'Medium' }),
@@ -3591,6 +3591,7 @@
       url.searchParams.set('device', device);
     }
     url.searchParams.set('viewer', 'relay-pilot');
+    url.searchParams.set('relayPilotPath', 'flat');
     window.open(url.toString(), '_blank', 'noopener');
   }
 

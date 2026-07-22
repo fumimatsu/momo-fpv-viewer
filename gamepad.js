@@ -33,6 +33,10 @@ const legacyStorageKey = "fpvGamepadMapping";
 const pageParams = new URLSearchParams(location.search);
 const targetDevice = pageParams.get("device")?.trim() || "";
 const relayPilotTarget = pageParams.get("viewer") === "relay-pilot";
+// Relay に同期される gamepad.html は web/ 直下に配置されるため、Pilot も同じ階層を使う。
+const relayPilotPath = pageParams.get("relayPilotPath") === "flat"
+  ? "./pilot.html"
+  : "./variants/relay/pilot.html";
 const profileScope = targetDevice ? `device:${targetDevice}` : "";
 const scopedLegacyStorageKey = targetDevice
   ? `${legacyStorageKey}:${encodeURIComponent(targetDevice)}`
@@ -415,12 +419,16 @@ function syncMappingFromOptions() {
 
 function buildViewerUrl() {
   const url = new URL(
-    relayPilotTarget ? "./pilot.html" : (openViewerEl?.getAttribute("href") || "./viewer.html"),
+    relayPilotTarget ? relayPilotPath : (openViewerEl?.getAttribute("href") || "./viewer.html"),
     location.href
   );
   const params = new URLSearchParams(url.hash.replace(/^#\??/, ""));
+  const relayHost = pageParams.get("host") || "";
   if (targetDevice) {
     url.searchParams.set("device", targetDevice);
+  }
+  if (relayHost) {
+    url.searchParams.set("host", relayHost);
   }
   params.set("gamepad", "1");
   params.set("gamepadIndex", String(mapping.index ?? 0));
@@ -483,7 +491,7 @@ function buildViewerUrl() {
     params.delete("ffbSpeedDamper");
     params.delete("ffbUrl");
   }
-  if (!targetDevice) {
+  if (!targetDevice && !relayHost) {
     url.search = "";
   }
   url.hash = params.toString();

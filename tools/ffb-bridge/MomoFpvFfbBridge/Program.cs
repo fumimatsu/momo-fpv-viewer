@@ -1,30 +1,26 @@
-using MomoFpvFfbBridge;
+using System.Windows.Forms;
 
-var config = BridgeConfig.FromArgs(args);
-using var backend = CreateBackend(config);
-await using var server = new FfbBridgeServer(config, backend);
+namespace MomoFpvFfbBridge;
 
-using var cts = new CancellationTokenSource();
-Console.CancelKeyPress += (_, e) =>
+internal static class Program
 {
-    e.Cancel = true;
-    cts.Cancel();
-    backend.StopAll("ctrl-c");
-};
+    [STAThread]
+    private static void Main(string[] args)
+    {
+        ApplicationConfiguration.Initialize();
 
-AppDomain.CurrentDomain.ProcessExit += (_, _) => backend.StopAll("process-exit");
+        var config = BridgeConfig.FromArgs(args);
+        using var backend = CreateBackend(config);
+        var server = new FfbBridgeServer(config, backend);
+        using var form = new BridgeMainForm(config, backend, server);
 
-try
-{
-    await server.RunAsync(cts.Token);
-}
-finally
-{
-    backend.StopAll("shutdown");
-}
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => backend.StopAll("process-exit");
+        Application.Run(form);
+    }
 
-static IFfbBackend CreateBackend(BridgeConfig config)
-{
-    // auto は接続デバイスの互換プロファイルで選ぶ。明示指定は試験・切り分け用に残す。
-    return new DirectInputFfbBackend(config.MaxOutput, config.Backend);
+    private static IFfbBackend CreateBackend(BridgeConfig config)
+    {
+        // auto は接続デバイスの互換プロファイルで選ぶ。明示指定は試験・切り分け用に残す。
+        return new DirectInputFfbBackend(config.MaxOutput, config.Backend);
+    }
 }

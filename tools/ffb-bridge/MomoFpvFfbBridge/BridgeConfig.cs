@@ -5,8 +5,9 @@ internal sealed record BridgeConfig(
     int Port,
     double MaxOutput,
     string Backend,
-    IReadOnlySet<string> AllowedOrigins)
+    HashSet<string> AllowedOrigins)
 {
+    private readonly object _allowedOriginsGate = new();
     public static BridgeConfig FromArgs(string[] args)
     {
         var host = "127.0.0.1";
@@ -57,7 +58,24 @@ internal sealed record BridgeConfig(
         if (string.IsNullOrWhiteSpace(origin) || origin == "null") return true;
         if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri)) return false;
         if (uri.Host is "127.0.0.1" or "localhost" or "::1") return true;
-        return AllowedOrigins.Contains(origin.TrimEnd('/'));
+        lock (_allowedOriginsGate)
+        {
+            return AllowedOrigins.Contains(origin.TrimEnd('/'));
+        }
+    }
+
+    public void AllowOrigin(string origin)
+    {
+        if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri))
+        {
+            throw new ArgumentException("Origin must be an absolute URL.", nameof(origin));
+        }
+
+        var normalized = uri.GetLeftPart(UriPartial.Authority).TrimEnd('/');
+        lock (_allowedOriginsGate)
+        {
+            AllowedOrigins.Add(normalized);
+        }
     }
 
     private static string NormalizeBackend(string? value)

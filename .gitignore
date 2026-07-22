@@ -2,3 +2,4 @@ node_modules/
 coverage/
 tools/ffb-bridge/**/bin/
 tools/ffb-bridge/**/obj/
+tools/ffb-bridge/artifacts/

@@ -20,6 +20,10 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
     private readonly IFfbBackend _backend;
     private readonly TcpListener _listener;
     private readonly JsonSerializerOptions _json = new(JsonSerializerDefaults.Web);
+    private int _activeClientCount;
+
+    public bool IsListening { get; private set; }
+    public int ActiveClientCount => Volatile.Read(ref _activeClientCount);
 
     public FfbBridgeServer(BridgeConfig config, IFfbBackend backend)
     {
@@ -31,6 +35,7 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
     public async Task RunAsync(CancellationToken token)
     {
         _listener.Start();
+        IsListening = true;
         Console.WriteLine($"{BridgeName} {BridgeVersion}");
         Console.WriteLine($"Listening on ws://{_config.Host}:{_config.Port}");
         Console.WriteLine($"Backend: {_backend.BackendName}; max output clamp {_config.MaxOutput:0.00}");
@@ -78,7 +83,7 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
         var handshake = await ReadHandshakeAsync(stream, token);
         if (handshake is null) return;
 
-        // FFBを外部サイトから勝手に操作されないよう、localhostからの接続だけ許可します。
+        // Bridge はViewer PCのloopbackからだけ受け、Viewer originはlocalhostまたは明示許可分に限定する。
         if (!IsLocalEndpoint(client.Client.RemoteEndPoint) || !_config.IsAllowedOrigin(handshake.Origin))
         {
             await WriteHttpResponseAsync(stream, "403 Forbidden", "Forbidden\n", token);
@@ -98,7 +103,15 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
         await WriteWebSocketUpgradeAsync(stream, handshake.WebSocketKey, token);
         using var webSocket = WebSocket.CreateFromStream(stream, true, null, TimeSpan.FromSeconds(20));
         var state = new ClientState();
-        await ReceiveLoopAsync(webSocket, state, token);
+        Interlocked.Increment(ref _activeClientCount);
+        try
+        {
+            await ReceiveLoopAsync(webSocket, state, token);
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _activeClientCount);
+        }
     }
 
     private async Task ReceiveLoopAsync(WebSocket webSocket, ClientState state, CancellationToken token)
@@ -284,6 +297,10 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
             effectMode = status.EffectMode,
             profile = status.Profile,
             capabilities = status.Capabilities,
+            deviceId = status.DeviceId,
+            deviceName = status.DeviceName,
+            acquired = status.Acquired,
+            exclusive = status.Exclusive,
             backend = _backend.BackendName,
             maxOutput = _config.MaxOutput,
             deviceLost = status.DeviceLost,
@@ -410,6 +427,7 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
 
     public ValueTask DisposeAsync()
     {
+        IsListening = false;
         _listener.Stop();
         return ValueTask.CompletedTask;
     }

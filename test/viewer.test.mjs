@@ -212,7 +212,9 @@ test('FFB presets are configured from the input setup and selectable in the View
   assert.doesNotMatch(gamepadJs, /params\.set\("ffbCenteringReverse"/);
   assert.match(gamepadJs, /params\.set\("ffbPreset", normalizeFfbPreset\(mapping\.ffbPreset\)\)/);
   assert.match(gamepadJs, /params\.set\("gamepadFfbPresetButton", String\(mapping\.ffbPresetButton\)\)/);
-  assert.match(js, /const FFB_ENABLED = getBooleanParam\('ffbEnabled', getBooleanParam\('ffbTest', false\)\)/);
+  assert.match(js, /const FFB_ENABLED = getBooleanParamWithProfile\('ffbEnabled', 'ffbEnabled', getBooleanParam\('ffbTest', false\)\)/);
+  assert.match(js, /getNumberParamWithProfile\('ffbBaseFriction', 'ffbBaseFriction', 0\.28\)/);
+  assert.match(gamepadJs, /const relayPilotPath = pageParams\.get\("relayPilotPath"\) === "flat"/);
   assert.match(js, /const GAMEPAD_FFB_PRESET_BUTTON = getNumberParamWithProfile\('gamepadFfbPresetButton', 'ffbPresetButton', -1, true\)/);
   assert.match(js, /const FFB_PRESETS = Object\.freeze\(/);
   assert.match(html, /id="ffbPresetControls"/);
@@ -241,10 +243,11 @@ test('FFB presets are configured from the input setup and selectable in the View
   assert.match(bridgeClient, /type: 'stopAll'/);
   assert.equal(readProjectFile('variants/relay/ffb-bridge.js'), bridgeClient);
   assert.match(relayHtml, /script src="\.\/ffb-bridge\.js"/);
-  assert.match(relayJs, /const FFB_ENABLED = getBooleanParam\('ffbEnabled', getBooleanParam\('ffbTest', false\)\)/);
+  assert.match(relayJs, /const FFB_ENABLED = getBooleanParamWithProfile\('ffbEnabled', 'ffbEnabled', getBooleanParam\('ffbTest', false\)\)/);
   assert.match(relayJs, /const FFB_PRESETS = Object\.freeze\(/);
   assert.match(relayHtml, /id="ffbPresetControls"/);
   assert.match(relayJs, /supportsConstantForce\(candidate\.capabilities\)/);
+  assert.match(gamepadJs, /relayPilotTarget \? relayPilotPath/);
   assert.match(bridgeClient, /deviceCapabilities/);
   assert.match(relayJs, /function updateFfbSpeedProxy\(\)/);
   assert.match(bridgeServer, /string\.Equals\(effectMode, "baseline", StringComparison\.OrdinalIgnoreCase\)/);
@@ -285,6 +288,7 @@ test('Gamepad mappings are stored and selected per VID and PID profile', () => {
   const viewerJs = readProjectFile('viewer.js');
   assert.ok(gamepadHtml.indexOf('gamepad-profile.js') < gamepadHtml.indexOf('gamepad.js'));
   assert.ok(viewerHtml.indexOf('gamepad-profile.js') < viewerHtml.indexOf('viewer.js'));
+  assert.match(gamepadJs, /\? "\.\/pilot\.html"/);
   assert.match(gamepadJs, /profileApi\.saveProfile\(/);
   assert.match(gamepadJs, /data-select-gamepad/);
   assert.match(gamepadJs, /params\.set\("gamepadProfile", selectedProfileKey\)/);

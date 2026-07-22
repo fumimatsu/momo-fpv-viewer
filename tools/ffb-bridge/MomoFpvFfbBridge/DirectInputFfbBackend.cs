@@ -42,7 +42,11 @@ internal sealed record BackendStatus(
     string AxisName,
     string EffectMode,
     DeviceCompatibilityProfile Profile,
-    FfbEffectCapabilities Capabilities);
+    FfbEffectCapabilities Capabilities,
+    string DeviceId,
+    string DeviceName,
+    bool Acquired,
+    bool Exclusive);
 
 internal sealed record AcquireResult(
     bool Ok,
@@ -118,6 +122,7 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
     private IDirectInputEffect? _damperEffect;
     private IDirectInputEffect? _frictionEffect;
     private string _deviceId = "";
+    private string _deviceName = "";
     private bool _exclusive;
     private bool _clipped;
     private bool _deviceLost;
@@ -203,6 +208,7 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
                 _deviceId = selected.InstanceGuid.ToString("D");
                 _exclusive = (level & CooperativeLevel.Exclusive) != 0;
                 var name = string.IsNullOrWhiteSpace(selected.ProductName) ? selected.InstanceName : selected.ProductName;
+                _deviceName = name;
                 var vendorId = ToHex4(device.Properties.VendorId);
                 var productId = ToHex4(device.Properties.ProductId);
                 _profile = FfbDeviceCompatibility.Resolve(name, vendorId, productId);
@@ -697,6 +703,7 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
         Try(() => _device?.Dispose());
         _device = null;
         _deviceId = "";
+        _deviceName = "";
         _exclusive = false;
         _profile = FfbDeviceCompatibility.Generic;
         _capabilities = FfbEffectCapabilities.None;
@@ -720,7 +727,11 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
             AxisName: _ffbAxisName,
             EffectMode: _effectMode,
             Profile: _profile,
-            Capabilities: _capabilities);
+            Capabilities: _capabilities,
+            DeviceId: _deviceId,
+            DeviceName: _deviceName,
+            Acquired: _device is not null,
+            Exclusive: _exclusive);
     }
 
     private static bool LooksLikeWheel(string? name, DeviceType type)
