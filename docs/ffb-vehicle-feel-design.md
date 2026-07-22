@@ -20,7 +20,6 @@ The Bridge owns timing, effect application, output clamping, and safety stop. Th
 | --- | --- | --- | --- |
 | Baseline friction | speedProxy | Friction | Phase 1 |
 | Baseline damping | speedProxy | Damper | Phase 1 |
-| Speed-gated return | speedProxy, virtual steering | Constant force | Phase 1.5 |
 | Self-aligning/rack load | vehicle speed, lateral acceleration, steering response | Constant force or Spring | Later |
 | Road texture | filtered vertical acceleration | Periodic effect | Later |
 | Impact | jerk/event | bounded pulse | Later |
@@ -28,7 +27,7 @@ The Bridge owns timing, effect application, output clamping, and safety stop. Th
 
 ## Phase 1 Baseline
 
-The Viewer derives a `speedProxy` from forward throttle, coast decay, and brake decay. It is explicitly not vehicle speed. It also derives a smoothed virtual front-wheel angle from the command sent to the RC car.
+The Viewer derives a `speedProxy` from forward throttle, coast decay, and brake decay. It is explicitly not vehicle speed.
 
 ```text
 friction = baseFriction + parkingFriction * (1 - speedProxy)^2
@@ -36,25 +35,14 @@ damper   = baseDamper + speedDamper * speedProxy^2
 torque   = 0
 ```
 
-## Phase 1.5 Speed-Gated Return
-
-The Bridge adds a weak return torque only after the vehicle starts moving. It is zero below `speedProxy = 0.08` and reaches its configured maximum at `0.65` using smoothstep interpolation.
-
-```text
-returnTorque = -virtualSteering * runningCentering * smoothstep(speedProxy, 0.08, 0.65)
-```
-
-The minus sign is configurable because DirectInput device polarity differs by wheel. This is a transition model, not a claim that RC IMU data has measured tire self-aligning torque. Telemetry-derived rack load replaces it later.
-
 The starting values are tuning defaults, not physical measurements:
 
 | Parameter | Default |
 | --- | --- |
-| Base friction | 0.05 |
-| Low-speed friction | 0.10 |
+| Base friction | 0.28 |
+| Low-speed friction | 0.08 |
 | Base damper | 0.05 |
 | Speed damper | 0.15 |
-| Running centering | 0.20 |
 
 Test in this order: stopped, low throttle, sustained throttle, throttle release, brake, then Drive Off. Change one parameter per run and record subjective notes. Pit House mechanical centering, damping, and friction remain off so the Bridge is the only adjustable software layer.
 

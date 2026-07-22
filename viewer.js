@@ -117,8 +117,6 @@
   const FFB_PARKING_FRICTION = Math.max(0, Math.min(1.0, getNumberParam('ffbParkingFriction', 0.08)));
   const FFB_BASE_DAMPER = Math.max(0, Math.min(1.0, getNumberParam('ffbBaseDamper', 0.05)));
   const FFB_SPEED_DAMPER = Math.max(0, Math.min(1.0, getNumberParam('ffbSpeedDamper', 0.15)));
-  const FFB_RUNNING_CENTERING = Math.max(0, Math.min(1.0, getNumberParam('ffbRunningCentering', 0.20)));
-  const FFB_CENTERING_REVERSE = getBooleanParam('ffbCenteringReverse', true);
   const FFB_PRESETS = Object.freeze({
     weak: Object.freeze({ scale: 0.65, label: 'Weak' }),
     medium: Object.freeze({ scale: 1.00, label: 'Medium' }),
@@ -130,7 +128,6 @@
   const FFB_SPEED_PROXY_ACCEL_PER_SEC = 0.55;
   const FFB_SPEED_PROXY_COAST_DECEL_PER_SEC = 0.22;
   const FFB_SPEED_PROXY_BRAKE_DECEL_PER_SEC = 1.10;
-  const FFB_VIRTUAL_STEERING_RESPONSE_PER_SEC = 8.0;
 
   const remoteVideo = document.getElementById('remote_video');
   const endpointInput = document.getElementById('endpoint');
@@ -209,7 +206,6 @@
   let ffbReconnectTimer = 0;
   let ffbShuttingDown = false;
   let ffbSpeedProxy = 0;
-  let ffbVirtualSteering = 0;
   let ffbSpeedProxyAt = performance.now();
   let activeFfbPreset = FFB_INITIAL_PRESET;
 
@@ -2079,7 +2075,7 @@
     sendFfbSteering();
   }
 
-  function updateFfbVehicleState() {
+  function updateFfbSpeedProxy() {
     const now = performance.now();
     const elapsedSec = Math.max(0, Math.min(0.25, (now - ffbSpeedProxyAt) / 1000));
     ffbSpeedProxyAt = now;
@@ -2093,10 +2089,7 @@
         : FFB_SPEED_PROXY_COAST_DECEL_PER_SEC;
     const step = rate * elapsedSec;
     ffbSpeedProxy += Math.max(-step, Math.min(step, forward - ffbSpeedProxy));
-    const steeringTarget = Math.max(-1, Math.min(1, (Number(steeringInput?.value || 1500) - 1500) / Math.max(1, RC_STEERING_THROW)));
-    const steeringStep = FFB_VIRTUAL_STEERING_RESPONSE_PER_SEC * elapsedSec;
-    ffbVirtualSteering += Math.max(-steeringStep, Math.min(steeringStep, steeringTarget - ffbVirtualSteering));
-    return { speedProxy: ffbSpeedProxy, virtualSteering: ffbVirtualSteering };
+    return ffbSpeedProxy;
   }
 
   function scheduleFfbReconnect() {
@@ -2141,7 +2134,7 @@
       }
       return;
     }
-    const vehicleState = updateFfbVehicleState();
+    const speedProxy = updateFfbSpeedProxy();
     const preset = FFB_PRESETS[activeFfbPreset];
     const capabilities = getFfbCapabilities(snapshot.deviceCapabilities);
     ffbClient.sendFfb({
@@ -2149,14 +2142,11 @@
       gain: 1,
       enabled: true,
       effectMode: 'baseline',
-      speedProxy: vehicleState.speedProxy,
-      virtualSteering: vehicleState.virtualSteering,
+      speedProxy,
       baseFriction: capabilities.friction ? FFB_BASE_FRICTION * preset.scale : 0,
       parkingFriction: capabilities.friction ? FFB_PARKING_FRICTION * preset.scale : 0,
       baseDamper: capabilities.damper ? FFB_BASE_DAMPER * preset.scale : 0,
       speedDamper: capabilities.damper ? FFB_SPEED_DAMPER * preset.scale : 0,
-      runningCentering: FFB_RUNNING_CENTERING * preset.scale,
-      centeringReverse: FFB_CENTERING_REVERSE,
       damper: 0,
       friction: 0,
       inertia: 0,
@@ -2168,7 +2158,6 @@
     ffbOutputEnabled = false;
     ffbForceActive = false;
     ffbSpeedProxy = 0;
-    ffbVirtualSteering = 0;
     ffbSpeedProxyAt = performance.now();
     ffbClient?.stopAll();
   }

@@ -195,9 +195,8 @@ test('FFB presets are configured from the input setup and selectable in the View
   assert.match(gamepadHtml, /id="ffbParkingFriction"/);
   assert.match(gamepadHtml, /id="ffbBaseDamper"/);
   assert.match(gamepadHtml, /id="ffbSpeedDamper"/);
-  assert.match(gamepadHtml, /id="ffbRunningCentering"/);
-  assert.match(gamepadHtml, /id="ffbCenteringReverse"/);
-  assert.doesNotMatch(gamepadHtml, /id="ffbCentering"/);
+  assert.doesNotMatch(gamepadHtml, /id="ffbRunningCentering"/);
+  assert.doesNotMatch(gamepadHtml, /id="ffbCenteringReverse"/);
   assert.match(gamepadHtml, /id="ffbBridgeUrl"/);
   assert.match(gamepadJs, /ffbEnabled: false/);
   assert.match(gamepadJs, /ffbPreset: "medium"/);
@@ -207,7 +206,10 @@ test('FFB presets are configured from the input setup and selectable in the View
   assert.match(gamepadJs, /ffbParkingFriction: 0\.08/);
   assert.match(gamepadJs, /params\.set\("ffbBaseFriction", String\(mapping\.ffbBaseFriction \?\? 0\.28\)\)/);
   assert.match(gamepadJs, /params\.set\("ffbParkingFriction", String\(mapping\.ffbParkingFriction \?\? 0\.08\)\)/);
-  assert.match(gamepadJs, /params\.set\("ffbRunningCentering", String\(mapping\.ffbRunningCentering \?\? 0\.20\)\)/);
+  assert.match(gamepadJs, /delete mapping\.ffbRunningCentering/);
+  assert.match(gamepadJs, /delete mapping\.ffbCenteringReverse/);
+  assert.doesNotMatch(gamepadJs, /params\.set\("ffbRunningCentering"/);
+  assert.doesNotMatch(gamepadJs, /params\.set\("ffbCenteringReverse"/);
   assert.match(gamepadJs, /params\.set\("ffbPreset", normalizeFfbPreset\(mapping\.ffbPreset\)\)/);
   assert.match(gamepadJs, /params\.set\("gamepadFfbPresetButton", String\(mapping\.ffbPresetButton\)\)/);
   assert.match(js, /const FFB_ENABLED = getBooleanParam\('ffbEnabled', getBooleanParam\('ffbTest', false\)\)/);
@@ -218,8 +220,8 @@ test('FFB presets are configured from the input setup and selectable in the View
   assert.match(html, /data-ffb-preset="medium"/);
   assert.match(html, /data-ffb-preset="strong"/);
   assert.match(js, /const FFB_BASE_FRICTION = Math\.max\(0, Math\.min\(1\.0/);
-  assert.match(js, /const FFB_RUNNING_CENTERING = Math\.max\(0, Math\.min\(1\.0/);
-  assert.match(js, /function updateFfbVehicleState\(\)/);
+  assert.doesNotMatch(js, /FFB_RUNNING_CENTERING/);
+  assert.match(js, /function updateFfbSpeedProxy\(\)/);
   assert.match(js, /function sendFfbSteering\(\)/);
   assert.match(js, /function initializeFfb\(\)/);
   assert.match(js, /ffbClient\.connect\(\);/);
@@ -227,8 +229,8 @@ test('FFB presets are configured from the input setup and selectable in the View
   assert.match(js, /stopFfbOutput\(\);/);
   assert.match(js, /effectMode: 'baseline'/);
   assert.match(js, /torque: 0/);
-  assert.match(js, /virtualSteering: vehicleState\.virtualSteering/);
-  assert.match(js, /runningCentering: FFB_RUNNING_CENTERING \* preset\.scale/);
+  assert.doesNotMatch(js, /virtualSteering/);
+  assert.doesNotMatch(js, /runningCentering/);
   assert.match(js, /function cycleFfbPreset\(\)/);
   assert.match(js, /cycleFfbPreset\(\);/);
   assert.match(js, /supportsConstantForce\(candidate\.capabilities\)/);
@@ -244,14 +246,15 @@ test('FFB presets are configured from the input setup and selectable in the View
   assert.match(relayHtml, /id="ffbPresetControls"/);
   assert.match(relayJs, /supportsConstantForce\(candidate\.capabilities\)/);
   assert.match(bridgeClient, /deviceCapabilities/);
-  assert.match(relayJs, /function updateFfbVehicleState\(\)/);
+  assert.match(relayJs, /function updateFfbSpeedProxy\(\)/);
   assert.match(bridgeServer, /string\.Equals\(effectMode, "baseline", StringComparison\.OrdinalIgnoreCase\)/);
   assert.match(bridgeServer, /ReadDouble\(root, "baseFriction", 0\.28\)/);
   assert.match(bridgeServer, /ReadDouble\(root, "parkingFriction", 0\.08\)/);
   assert.match(bridgeServer, /friction = ClampUnit\(baseFriction \+ parkingFriction \* lowSpeed \* lowSpeed\)/);
   assert.match(bridgeServer, /damper = ClampUnit\(baseDamper \+ speedDamper \* speed \* speed\)/);
-  assert.match(bridgeServer, /torque = ClampSignedUnit\(virtualSteering \* runningCentering \* centeringWeight \* centeringDirection\)/);
-  assert.match(bridgeServer, /private static double SmoothStep\(/);
+  assert.match(bridgeServer, /torque = 0;/);
+  assert.doesNotMatch(bridgeServer, /virtualSteering/);
+  assert.doesNotMatch(bridgeServer, /SmoothStep/);
   assert.match(backend, /Math\.Abs\(_lastTorque\) < 0\.0001 && _lastDamper <= 0\.0001 && _lastFriction <= 0\.0001/);
   assert.match(backend, /StopAllLocked\(\);/);
   assert.match(backend, /\("moza-r3", "MOZA R3", "346E"/);
@@ -260,7 +263,7 @@ test('FFB presets are configured from the input setup and selectable in the View
   assert.match(backend, /\("logitech-g923", "Logitech G923", "046D"/);
   assert.match(backend, /device\.GetEffects\(\)/);
   assert.match(bridgeConfig, /var backend = "auto"/);
-  assert.match(bridgeLauncher, /\[string\]\$Backend = 'auto'/);
+  assert.match(bridgeLauncher, /\[string\]\$Backend = 'moza-directinput'/);
 });
 
 test('automatic Ayame client ID follows the room lock policy', () => {

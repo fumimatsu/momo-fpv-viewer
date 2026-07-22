@@ -13,8 +13,6 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
     private const int Protocol = 1;
     private const string BridgeName = "Momo FPV FFB Bridge";
     private const string BridgeVersion = "0.2.0-baseline";
-    private const double CenteringStartSpeed = 0.08;
-    private const double CenteringFullSpeed = 0.65;
     private static readonly TimeSpan FfbTimeout = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan StatusMinInterval = TimeSpan.FromMilliseconds(90);
 
@@ -213,8 +211,8 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
                         break;
                     }
 
-                    // baseline は throttle 由来の speedProxy と仮想前輪角を受け、effect 合成は Bridge 側で行う。
-                    // telemetry の rack / road / impact effect は次段階で同じ入力点に追加する。
+                    // baseline は throttle 由来の speedProxy で操舵抵抗だけを合成する。
+                    // telemetry 由来の rack / road / impact effect は次段階で別途追加する。
                     var effectMode = ReadString(root, "effectMode", "constant");
                     var torque = ReadDouble(root, "torque", 0);
                     var damper = ReadDouble(root, "damper", 0);
@@ -229,14 +227,9 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
                         var speedDamper = ClampUnit(ReadDouble(root, "speedDamper", 0.15));
                         var lowSpeed = 1.0 - speed;
 
-                        var virtualSteering = ClampSignedUnit(ReadDouble(root, "virtualSteering", 0));
-                        var runningCentering = ClampUnit(ReadDouble(root, "runningCentering", 0.20));
-                        var centeringDirection = ReadBool(root, "centeringReverse", true) ? -1.0 : 1.0;
-                        var centeringWeight = SmoothStep(speed, CenteringStartSpeed, CenteringFullSpeed);
-
                         // 停車時の重さは friction、走行中の粘りは damper で作る。
-                        // 復帰力は走行開始後だけ立ち上げ、後に車両テレメトリ由来のラック荷重へ置き換える。
-                        torque = ClampSignedUnit(virtualSteering * runningCentering * centeringWeight * centeringDirection);
+                        // 速度代理値からの疑似センタリングは使わず、トルクは常にゼロに保つ。
+                        torque = 0;
                         friction = ClampUnit(baseFriction + parkingFriction * lowSpeed * lowSpeed);
                         damper = ClampUnit(baseDamper + speedDamper * speed * speed);
                         inertia = 0;
@@ -413,12 +406,6 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
     private static double ClampSignedUnit(double value)
     {
         return Math.Clamp(double.IsFinite(value) ? value : 0, -1, 1);
-    }
-
-    private static double SmoothStep(double value, double start, double end)
-    {
-        var normalized = ClampUnit((value - start) / Math.Max(0.0001, end - start));
-        return normalized * normalized * (3 - 2 * normalized);
     }
 
     public ValueTask DisposeAsync()

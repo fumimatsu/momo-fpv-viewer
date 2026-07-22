@@ -36,7 +36,7 @@ The useful baseline controls are `Mechanical Centering Strength`, `Mechanical Fr
 
 | Pit House setting | Meaning | Use during bridge development |
 | --- | --- | --- |
-| Mechanical Centering Strength | Return force increases away from the center. | Keep off. Bridge owns the speed-gated synthetic return force. |
+| Mechanical Centering Strength | Return force increases away from the center. | Keep off during baseline resistance tuning. |
 | Mechanical Friction | Constant steering resistance. | Keep off. Bridge owns baseline friction. |
 | Mechanical Damping | Resistance increases with steering speed. | Keep off. Bridge owns baseline damping. |
 | Maximum Output Torque Limit | Limits base torque. | Keep as the hardware safety cap. |
@@ -72,8 +72,7 @@ The initial effect mapping is:
 | FFB behavior | DirectInput effect | Initial purpose |
 | --- | --- | --- |
 | Constant left/right steering torque | `GUID_ConstantForce` | Direction, sign, scaling, and stop verification. |
-| Angle-dependent return force | `GUID_ConstantForce` from virtual steering | Phase 1 speed-gated return approximation. |
-| Physical rack/self-aligning model | `GUID_Spring` or `GUID_ConstantForce` | Future telemetry-driven model. |
+| Angle-dependent return force | `GUID_Spring` or `GUID_ConstantForce` | Future telemetry-driven model. |
 | Speed-dependent resistance | `GUID_Damper` | Phase 1 baseline that increases with speedProxy. |
 | Persistent rack resistance | `GUID_Friction` | Phase 1 baseline, strongest at low speedProxy. |
 | Short impact or road vibration | `GUID_Sine` or short constant pulse | Verify transient effects before live telemetry. |
@@ -149,7 +148,7 @@ Acceptance: each mapping can be tuned without vehicle firmware changes and stale
 
 Input 設定画面で FFB を有効にして開いた Viewer は、スロットル/ブレーキ入力から平滑化した `speedProxy` を Bridge へ送る。speedProxy は実車速ではないため、GPS、ESC、光学速度、または IMU を含む推定器が導入されたら置き換える。
 
-Bridge は `friction = base + lowSpeed * parking`、`damper = base + speed^2 * speedDamper` を合成する。さらに `speedProxy` が 0.08 を超えた後だけ、平滑化した仮想前輪角に比例する弱い復帰 torque を加算し、0.65 まで滑らかに増やす。停車時の重さは friction、走行時の粘りは damper、走行開始後の緩やかな戻りは速度ゲート付き torque で作る。FFB を有効にして Viewer を開くと Bridge 接続と対応デバイスの Acquire までは自動で行うが、出力は `Drive On` の間だけである。`Drive Off`、切断、ページ離脱、Bridge 終了、250 ms の Bridge watchdog は constant torque と condition effect のすべてを停止する。手順は [../tools/ffb-bridge/README.md](../tools/ffb-bridge/README.md) を参照する。
+Bridge は `friction = base + lowSpeed * parking`、`damper = base + speed^2 * speedDamper` を合成する。停車時の重さは friction、走行時の粘りは damper で作り、baseline では方向性 torque を加えない。FFB を有効にして Viewer を開くと Bridge 接続と対応デバイスの Acquire までは自動で行うが、出力は `Drive On` の間だけである。`Drive Off`、切断、ページ離脱、Bridge 終了、250 ms の Bridge watchdog は constant torque と condition effect のすべてを停止する。手順は [../tools/ffb-bridge/README.md](../tools/ffb-bridge/README.md) を参照する。
 
 Viewer は raw wheel torque を任意に送らない。Bridge が device Acquire、基礎抵抗の合成、effect 更新、出力 clamp、停止を所有する。テレメトリーを使う段階では、横G、ヨーレート、上下加速度の帯域別特徴量、衝撃イベントを正規化済み入力として追加する。
 
