@@ -8,8 +8,9 @@ Viewer HTML -> ws://127.0.0.1:24725 -> DirectInput -> MOZA Pit House / R3
 
 ## デバイス互換性
 
-起動スクリプトの既定 backend は `auto` である。Bridge は DirectInput のデバイス名、
-VID/PID、対応するフォースフィードバック effect を読み取り、互換プロファイルを選択する。
+起動スクリプトの既定 backend は `moza-directinput` である。これは MOZA R3 の符号付き
+constant magnitude 出力を明示し、デバイス名や VID/PID の自動判別失敗で一般 DirectInput 方式へ
+落ちることを防ぐ。`auto` は他デバイスの検証時だけ明示指定する。
 
 | Device | Profile | DirectInput force sign |
 | --- | --- | --- |
