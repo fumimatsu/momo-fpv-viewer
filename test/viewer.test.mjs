@@ -174,7 +174,7 @@ test('Throttle back range expands by gear', () => {
   assert.match(html, /id="throttle" type="range" min="1000" max="2000"/);
 });
 
-test('FFB is configured from the input setup and stays out of the driving UI', () => {
+test('FFB presets are configured from the input setup and selectable in the Viewer', () => {
   const html = readProjectFile('viewer.html');
   const js = readProjectFile('viewer.js');
   const bridgeClient = readProjectFile('ffb-bridge.js');
@@ -188,6 +188,7 @@ test('FFB is configured from the input setup and stays out of the driving UI', (
   assert.doesNotMatch(html, /id="ffbTestPanel"/);
   assert.doesNotMatch(relayHtml, /id="ffbTestPanel"/);
   assert.match(gamepadHtml, /id="ffbEnabled"/);
+  assert.match(gamepadHtml, /id="ffbPreset"/);
   assert.match(gamepadHtml, /id="ffbBaseFriction"/);
   assert.match(gamepadHtml, /id="ffbParkingFriction"/);
   assert.match(gamepadHtml, /id="ffbBaseDamper"/);
@@ -197,10 +198,23 @@ test('FFB is configured from the input setup and stays out of the driving UI', (
   assert.doesNotMatch(gamepadHtml, /id="ffbCentering"/);
   assert.match(gamepadHtml, /id="ffbBridgeUrl"/);
   assert.match(gamepadJs, /ffbEnabled: false/);
+  assert.match(gamepadJs, /ffbPreset: "medium"/);
+  assert.match(gamepadJs, /ffbPresetButton: null/);
   assert.match(gamepadJs, /params\.set\("ffbEnabled", mapping\.ffbEnabled \? "1" : "0"\)/);
-  assert.match(gamepadJs, /params\.set\("ffbBaseFriction", String\(mapping\.ffbBaseFriction \?\? 0\.05\)\)/);
+  assert.match(gamepadJs, /ffbBaseFriction: 0\.10/);
+  assert.match(gamepadJs, /ffbParkingFriction: 0\.30/);
+  assert.match(gamepadJs, /params\.set\("ffbBaseFriction", String\(mapping\.ffbBaseFriction \?\? 0\.10\)\)/);
+  assert.match(gamepadJs, /params\.set\("ffbParkingFriction", String\(mapping\.ffbParkingFriction \?\? 0\.30\)\)/);
   assert.match(gamepadJs, /params\.set\("ffbRunningCentering", String\(mapping\.ffbRunningCentering \?\? 0\.20\)\)/);
+  assert.match(gamepadJs, /params\.set\("ffbPreset", normalizeFfbPreset\(mapping\.ffbPreset\)\)/);
+  assert.match(gamepadJs, /params\.set\("gamepadFfbPresetButton", String\(mapping\.ffbPresetButton\)\)/);
   assert.match(js, /const FFB_ENABLED = getBooleanParam\('ffbEnabled', getBooleanParam\('ffbTest', false\)\)/);
+  assert.match(js, /const GAMEPAD_FFB_PRESET_BUTTON = getNumberParamWithProfile\('gamepadFfbPresetButton', 'ffbPresetButton', -1, true\)/);
+  assert.match(js, /const FFB_PRESETS = Object\.freeze\(/);
+  assert.match(html, /id="ffbPresetControls"/);
+  assert.match(html, /data-ffb-preset="weak"/);
+  assert.match(html, /data-ffb-preset="medium"/);
+  assert.match(html, /data-ffb-preset="strong"/);
   assert.match(js, /const FFB_BASE_FRICTION = Math\.max\(0, Math\.min\(1\.0/);
   assert.match(js, /const FFB_RUNNING_CENTERING = Math\.max\(0, Math\.min\(1\.0/);
   assert.match(js, /function updateFfbVehicleState\(\)/);
@@ -212,15 +226,21 @@ test('FFB is configured from the input setup and stays out of the driving UI', (
   assert.match(js, /effectMode: 'baseline'/);
   assert.match(js, /torque: 0/);
   assert.match(js, /virtualSteering: vehicleState\.virtualSteering/);
-  assert.match(js, /runningCentering: FFB_RUNNING_CENTERING/);
+  assert.match(js, /runningCentering: FFB_RUNNING_CENTERING \* preset\.scale/);
+  assert.match(js, /function cycleFfbPreset\(\)/);
+  assert.match(js, /cycleFfbPreset\(\);/);
   assert.match(js, /window\.addEventListener\('pagehide', \(\) => \{\s*stopFfbOutput\(\);/);
   assert.match(bridgeClient, /ws:\/\/127\.0\.0\.1:24725/);
   assert.match(bridgeClient, /type: 'stopAll'/);
   assert.equal(readProjectFile('variants/relay/ffb-bridge.js'), bridgeClient);
   assert.match(relayHtml, /script src="\.\/ffb-bridge\.js"/);
   assert.match(relayJs, /const FFB_ENABLED = getBooleanParam\('ffbEnabled', getBooleanParam\('ffbTest', false\)\)/);
+  assert.match(relayJs, /const FFB_PRESETS = Object\.freeze\(/);
+  assert.match(relayHtml, /id="ffbPresetControls"/);
   assert.match(relayJs, /function updateFfbVehicleState\(\)/);
   assert.match(bridgeServer, /string\.Equals\(effectMode, "baseline", StringComparison\.OrdinalIgnoreCase\)/);
+  assert.match(bridgeServer, /ReadDouble\(root, "baseFriction", 0\.10\)/);
+  assert.match(bridgeServer, /ReadDouble\(root, "parkingFriction", 0\.30\)/);
   assert.match(bridgeServer, /friction = ClampUnit\(baseFriction \+ parkingFriction \* lowSpeed \* lowSpeed\)/);
   assert.match(bridgeServer, /damper = ClampUnit\(baseDamper \+ speedDamper \* speed \* speed\)/);
   assert.match(bridgeServer, /torque = ClampSignedUnit\(virtualSteering \* runningCentering \* centeringWeight \* centeringDirection\)/);

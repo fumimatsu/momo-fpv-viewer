@@ -511,6 +511,48 @@
       opacity: 0.34;
     }
 
+    .ffb-preset-controls {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      width: fit-content;
+      gap: 3px;
+      margin-left: auto;
+      margin-bottom: 8px;
+      padding: 3px;
+      border: 1px solid rgba(255, 255, 255, 0.28);
+      border-radius: 6px;
+      background: rgba(0, 0, 0, 0.42);
+    }
+
+    .ffb-preset-controls[hidden] {
+      display: none;
+    }
+
+    .ffb-preset-button {
+      display: inline-flex;
+      align-items: flex-end;
+      justify-content: center;
+      gap: 2px;
+      width: 28px;
+      min-width: 28px;
+      min-height: 28px;
+      padding: 4px;
+    }
+
+    .ffb-preset-button i {
+      width: 4px;
+      background: currentColor;
+      opacity: 0.42;
+    }
+
+    .ffb-preset-button i:nth-child(1) { height: 7px; }
+    .ffb-preset-button i:nth-child(2) { height: 12px; }
+    .ffb-preset-button i:nth-child(3) { height: 17px; }
+    .ffb-preset-button[data-bars="1"] i:nth-child(n + 2),
+    .ffb-preset-button[data-bars="2"] i:nth-child(3) { display: none; }
+    .ffb-preset-button[aria-pressed="true"] i { opacity: 1; }
+
     .top-controls:hover,
     .top-controls:hover .top-secondary,
     .panel:hover .rc-axis,
@@ -762,6 +804,11 @@
           </span>
         </span>
       </div>
+      <span id="ffbPresetControls" class="ffb-preset-controls" aria-label="FFB strength" hidden>
+        <button class="ffb-preset-button" type="button" data-ffb-preset="weak" data-bars="1" aria-label="FFB Weak" aria-pressed="false"><i></i><i></i><i></i></button>
+        <button class="ffb-preset-button" type="button" data-ffb-preset="medium" data-bars="2" aria-label="FFB Medium" aria-pressed="false"><i></i><i></i><i></i></button>
+        <button class="ffb-preset-button" type="button" data-ffb-preset="strong" data-bars="3" aria-label="FFB Strong" aria-pressed="false"><i></i><i></i><i></i></button>
+      </span>
       <div class="top-secondary">
         <button id="btnFullscreen" type="button">Fullscreen</button>
         <button id="btnFlip" type="button">Flip</button>
@@ -865,10 +912,10 @@
     </div>
   </div>
 
-  <script src="./gamepad-profile.js?v=20260722-ffb-baseline"></script>
-  <script src="./telemetry.js?v=20260722-ffb-baseline"></script>
-  <script src="./ffb-bridge.js?v=20260722-ffb-baseline"></script>
-  <script src="./viewer.js?v=20260722-ffb-baseline"></script>
+  <script src="./gamepad-profile.js?v=20260722-ffb-presets"></script>
+  <script src="./telemetry.js?v=20260722-ffb-presets"></script>
+  <script src="./ffb-bridge.js?v=20260722-ffb-presets"></script>
+  <script src="./viewer.js?v=20260722-ffb-presets"></script>
 </body>
 
 </html>

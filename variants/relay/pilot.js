@@ -61,18 +61,25 @@
   const GAMEPAD_DRIVE_BUTTON_ENABLED = getBooleanParam('gamepadDriveButtonEnabled', true);
   const GAMEPAD_PADDLE_LEFT_BUTTON = getNumberParamWithProfile('gamepadPaddleLeftButton', 'paddleLeftButton', 0, true);
   const GAMEPAD_PADDLE_RIGHT_BUTTON = getNumberParamWithProfile('gamepadPaddleRightButton', 'paddleRightButton', 1, true);
+  const GAMEPAD_FFB_PRESET_BUTTON = getNumberParamWithProfile('gamepadFfbPresetButton', 'ffbPresetButton', -1, true);
   const OSD_UPDATE_INTERVAL_MS = getNumberParam('osdMs', 100);
   const DC_PING_ENABLED = getBooleanParam('dcPing', false);
   const DC_PING_INTERVAL_MS = getNumberParam('dcPingMs', 1000);
   // ffbTest は過去の検証 URL 向けの互換名。通常は gamepad.html の ffbEnabled を使う。
   const FFB_ENABLED = getBooleanParam('ffbEnabled', getBooleanParam('ffbTest', false));
   const FFB_BRIDGE_URL = getStringParam('ffbUrl', 'ws://127.0.0.1:24725');
-  const FFB_BASE_FRICTION = Math.max(0, Math.min(1.0, getNumberParam('ffbBaseFriction', 0.05)));
-  const FFB_PARKING_FRICTION = Math.max(0, Math.min(1.0, getNumberParam('ffbParkingFriction', 0.10)));
+  const FFB_BASE_FRICTION = Math.max(0, Math.min(1.0, getNumberParam('ffbBaseFriction', 0.10)));
+  const FFB_PARKING_FRICTION = Math.max(0, Math.min(1.0, getNumberParam('ffbParkingFriction', 0.30)));
   const FFB_BASE_DAMPER = Math.max(0, Math.min(1.0, getNumberParam('ffbBaseDamper', 0.05)));
   const FFB_SPEED_DAMPER = Math.max(0, Math.min(1.0, getNumberParam('ffbSpeedDamper', 0.15)));
   const FFB_RUNNING_CENTERING = Math.max(0, Math.min(1.0, getNumberParam('ffbRunningCentering', 0.20)));
   const FFB_CENTERING_REVERSE = getBooleanParam('ffbCenteringReverse', true);
+  const FFB_PRESETS = Object.freeze({
+    weak: Object.freeze({ scale: 0.65, label: 'Weak' }),
+    medium: Object.freeze({ scale: 1.00, label: 'Medium' }),
+    strong: Object.freeze({ scale: 1.35, label: 'Strong' }),
+  });
+  const FFB_INITIAL_PRESET = normalizeFfbPreset(getStringParam('ffbPreset', GAMEPAD_PROFILE?.ffbPreset || 'medium'));
   const FFB_SEND_INTERVAL_MS = Math.max(20, Math.min(100, getNumberParam('ffbSendMs', 20)));
   const FFB_RECONNECT_DELAY_MS = 2000;
   const FFB_SPEED_PROXY_ACCEL_PER_SEC = 0.55;
@@ -164,6 +171,8 @@
   const btnRefreshMode = document.getElementById('btnRefreshMode');
   const btnRefreshDevice = document.getElementById('btnRefreshDevice');
   const btnInputSetup = document.getElementById('btnInputSetup');
+  const ffbPresetControls = document.getElementById('ffbPresetControls');
+  const ffbPresetButtons = Array.from(document.querySelectorAll('[data-ffb-preset]'));
   const btnDrive = document.getElementById('btnDrive');
   const btnSend = document.getElementById('btnSend');
   const btnNeutral = document.getElementById('btnNeutral');
@@ -180,6 +189,7 @@
   let ffbSpeedProxy = 0;
   let ffbVirtualSteering = 0;
   let ffbSpeedProxyAt = performance.now();
+  let activeFfbPreset = FFB_INITIAL_PRESET;
   const driveHud = document.getElementById('driveHud');
   const driveHudMode = document.getElementById('driveHudMode');
   const driveHudSteeringMarker = document.getElementById('driveHudSteeringMarker');
@@ -1414,6 +1424,7 @@
       return;
     }
     const vehicleState = updateFfbVehicleState();
+    const preset = FFB_PRESETS[activeFfbPreset];
     ffbClient.sendFfb({
       torque: 0,
       gain: 1,
@@ -1421,11 +1432,11 @@
       effectMode: 'baseline',
       speedProxy: vehicleState.speedProxy,
       virtualSteering: vehicleState.virtualSteering,
-      baseFriction: FFB_BASE_FRICTION,
-      parkingFriction: FFB_PARKING_FRICTION,
-      baseDamper: FFB_BASE_DAMPER,
-      speedDamper: FFB_SPEED_DAMPER,
-      runningCentering: FFB_RUNNING_CENTERING,
+      baseFriction: FFB_BASE_FRICTION * preset.scale,
+      parkingFriction: FFB_PARKING_FRICTION * preset.scale,
+      baseDamper: FFB_BASE_DAMPER * preset.scale,
+      speedDamper: FFB_SPEED_DAMPER * preset.scale,
+      runningCentering: FFB_RUNNING_CENTERING * preset.scale,
       centeringReverse: FFB_CENTERING_REVERSE,
       damper: 0,
       friction: 0,
@@ -1441,6 +1452,38 @@
     ffbVirtualSteering = 0;
     ffbSpeedProxyAt = performance.now();
     ffbClient?.stopAll();
+  }
+
+  function normalizeFfbPreset(value) {
+    const preset = String(value || '').toLowerCase();
+    return Object.prototype.hasOwnProperty.call(FFB_PRESETS, preset) ? preset : 'medium';
+  }
+
+  function updateFfbPresetControls() {
+    if (ffbPresetControls) {
+      ffbPresetControls.hidden = !FFB_ENABLED;
+    }
+    for (const button of ffbPresetButtons) {
+      const selected = button.dataset.ffbPreset === activeFfbPreset;
+      button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      button.title = `FFB ${FFB_PRESETS[button.dataset.ffbPreset]?.label || button.dataset.ffbPreset}`;
+    }
+  }
+
+  function setFfbPreset(preset, source = 'ui') {
+    if (!FFB_ENABLED) return;
+    const next = normalizeFfbPreset(preset);
+    if (next === activeFfbPreset) return;
+    activeFfbPreset = next;
+    updateFfbPresetControls();
+    sendFfbSteering();
+    recordEvent('ffb preset', `${next} via ${source}`);
+  }
+
+  function cycleFfbPreset() {
+    const presets = Object.keys(FFB_PRESETS);
+    const currentIndex = presets.indexOf(activeFfbPreset);
+    setFfbPreset(presets[(currentIndex + 1) % presets.length], 'gamepad');
   }
 
   function initializeFfb() {
@@ -2149,6 +2192,9 @@
     if (getGamepadButtonRisingEdge(gamepad, GAMEPAD_PADDLE_RIGHT_BUTTON)) {
       setThrottleGear(currentGear + 1);
       recordEvent('gamepad paddle', 'right');
+    }
+    if (GAMEPAD_FFB_PRESET_BUTTON >= 0 && getGamepadButtonRisingEdge(gamepad, GAMEPAD_FFB_PRESET_BUTTON)) {
+      cycleFfbPreset();
     }
     if (rcDriveEnabled) {
       applyGamepadCommand(gamepad);
@@ -3645,6 +3691,7 @@
 
   endpointInput.value = getInitialHost();
   syncCommandFromSliders();
+  updateFfbPresetControls();
   initializeFfb();
 
   steeringInput.addEventListener('input', syncCommandFromSliders);
@@ -3721,6 +3768,9 @@
     });
   });
   btnInputSetup.addEventListener('click', openInputSetup);
+  for (const button of ffbPresetButtons) {
+    button.addEventListener('click', () => setFfbPreset(button.dataset.ffbPreset));
+  }
   window.addEventListener('keydown', onControlKeyDown);
   window.addEventListener('keyup', onControlKeyUp);
   remoteVideo.addEventListener('loadedmetadata', updateUiState);

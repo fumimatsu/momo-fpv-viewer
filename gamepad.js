@@ -20,6 +20,7 @@ const optionInputs = {
   steeringDeadzone: document.getElementById("steeringDeadzone"),
   pedalDeadzone: document.getElementById("pedalDeadzone"),
   ffbEnabled: document.getElementById("ffbEnabled"),
+  ffbPreset: document.getElementById("ffbPreset"),
   ffbBaseFriction: document.getElementById("ffbBaseFriction"),
   ffbParkingFriction: document.getElementById("ffbParkingFriction"),
   ffbBaseDamper: document.getElementById("ffbBaseDamper"),
@@ -73,6 +74,10 @@ const translations = {
     pedalDeadzone: "Pedal deadzone",
     ffbOptionsTitle: "Force feedback",
     ffbEnabled: "Enable FFB while Drive On",
+    ffbPreset: "FFB strength",
+    ffbPresetWeak: "Weak",
+    ffbPresetMedium: "Medium",
+    ffbPresetStrong: "Strong",
     ffbBaseFriction: "Base friction",
     ffbParkingFriction: "Low-speed friction",
     ffbBaseDamper: "Base damper",
@@ -105,6 +110,7 @@ const translations = {
     drive: "Drive",
     paddleLeft: "Paddle L",
     paddleRight: "Paddle R",
+    ffbPresetButton: "FFB level",
     savedForViewer: "saved for Viewer",
     selectedDevice: "Selected device",
     selectDevice: "Use this device",
@@ -143,6 +149,10 @@ const translations = {
     pedalDeadzone: "ペダル遊び",
     ffbOptionsTitle: "フォースフィードバック",
     ffbEnabled: "Drive On 中に FFB を有効化",
+    ffbPreset: "FFB 強度",
+    ffbPresetWeak: "弱",
+    ffbPresetMedium: "中",
+    ffbPresetStrong: "強",
     ffbBaseFriction: "基礎フリクション",
     ffbParkingFriction: "低速フリクション",
     ffbBaseDamper: "基礎ダンパー",
@@ -175,6 +185,7 @@ const translations = {
     drive: "Drive",
     paddleLeft: "左パドル",
     paddleRight: "右パドル",
+    ffbPresetButton: "FFB 強度",
     savedForViewer: "Viewer 用に保存しました",
     selectedDevice: "設定対象",
     selectDevice: "このデバイスを設定",
@@ -216,8 +227,9 @@ function createDefaultMapping() {
     brakePressed: -1,
     pedalDeadzone: 0.05,
     ffbEnabled: false,
-    ffbBaseFriction: 0.05,
-    ffbParkingFriction: 0.10,
+    ffbPreset: "medium",
+    ffbBaseFriction: 0.10,
+    ffbParkingFriction: 0.30,
     ffbBaseDamper: 0.05,
     ffbSpeedDamper: 0.15,
     ffbRunningCentering: 0.20,
@@ -226,7 +238,8 @@ function createDefaultMapping() {
     reverseMin: 1300,
     driveButton: null,
     paddleLeftButton: null,
-    paddleRightButton: null
+    paddleRightButton: null,
+    ffbPresetButton: null
   };
 }
 
@@ -272,6 +285,11 @@ function formatValue(value) {
 
 function clamp01(value) {
   return Math.max(0, Math.min(1, value));
+}
+
+function normalizeFfbPreset(value) {
+  const preset = String(value || "").toLowerCase();
+  return ["weak", "medium", "strong"].includes(preset) ? preset : "medium";
 }
 
 function axisPercent(value) {
@@ -370,8 +388,9 @@ function syncOptionsFromMapping() {
   optionInputs.steeringDeadzone.value = String(mapping.steeringDeadzone ?? 0.03);
   optionInputs.pedalDeadzone.value = String(mapping.pedalDeadzone ?? 0.05);
   optionInputs.ffbEnabled.checked = Boolean(mapping.ffbEnabled);
-  optionInputs.ffbBaseFriction.value = String(mapping.ffbBaseFriction ?? 0.05);
-  optionInputs.ffbParkingFriction.value = String(mapping.ffbParkingFriction ?? 0.10);
+  optionInputs.ffbPreset.value = normalizeFfbPreset(mapping.ffbPreset);
+  optionInputs.ffbBaseFriction.value = String(mapping.ffbBaseFriction ?? 0.10);
+  optionInputs.ffbParkingFriction.value = String(mapping.ffbParkingFriction ?? 0.30);
   optionInputs.ffbBaseDamper.value = String(mapping.ffbBaseDamper ?? 0.05);
   optionInputs.ffbSpeedDamper.value = String(mapping.ffbSpeedDamper ?? 0.15);
   optionInputs.ffbRunningCentering.value = String(mapping.ffbRunningCentering ?? 0.20);
@@ -387,8 +406,9 @@ function syncMappingFromOptions() {
   mapping.steeringDeadzone = numberFromInput(optionInputs.steeringDeadzone, 0.03);
   mapping.pedalDeadzone = numberFromInput(optionInputs.pedalDeadzone, 0.05);
   mapping.ffbEnabled = Boolean(optionInputs.ffbEnabled.checked);
-  mapping.ffbBaseFriction = clamp01(numberFromInput(optionInputs.ffbBaseFriction, 0.05));
-  mapping.ffbParkingFriction = clamp01(numberFromInput(optionInputs.ffbParkingFriction, 0.10));
+  mapping.ffbPreset = normalizeFfbPreset(optionInputs.ffbPreset.value);
+  mapping.ffbBaseFriction = clamp01(numberFromInput(optionInputs.ffbBaseFriction, 0.10));
+  mapping.ffbParkingFriction = clamp01(numberFromInput(optionInputs.ffbParkingFriction, 0.30));
   mapping.ffbBaseDamper = clamp01(numberFromInput(optionInputs.ffbBaseDamper, 0.05));
   mapping.ffbSpeedDamper = clamp01(numberFromInput(optionInputs.ffbSpeedDamper, 0.15));
   mapping.ffbRunningCentering = clamp01(numberFromInput(optionInputs.ffbRunningCentering, 0.20));
@@ -441,10 +461,14 @@ function buildViewerUrl() {
   if (mapping.paddleRightButton !== null) {
     params.set("gamepadPaddleRightButton", String(mapping.paddleRightButton));
   }
+  if (mapping.ffbPresetButton !== null) {
+    params.set("gamepadFfbPresetButton", String(mapping.ffbPresetButton));
+  }
   params.set("ffbEnabled", mapping.ffbEnabled ? "1" : "0");
   if (mapping.ffbEnabled) {
-    params.set("ffbBaseFriction", String(mapping.ffbBaseFriction ?? 0.05));
-    params.set("ffbParkingFriction", String(mapping.ffbParkingFriction ?? 0.10));
+    params.set("ffbPreset", normalizeFfbPreset(mapping.ffbPreset));
+    params.set("ffbBaseFriction", String(mapping.ffbBaseFriction ?? 0.10));
+    params.set("ffbParkingFriction", String(mapping.ffbParkingFriction ?? 0.30));
     params.set("ffbBaseDamper", String(mapping.ffbBaseDamper ?? 0.05));
     params.set("ffbSpeedDamper", String(mapping.ffbSpeedDamper ?? 0.15));
     params.set("ffbRunningCentering", String(mapping.ffbRunningCentering ?? 0.20));
@@ -452,6 +476,7 @@ function buildViewerUrl() {
     params.set("ffbUrl", mapping.ffbBridgeUrl || "ws://127.0.0.1:24725");
   } else {
     params.delete("ffbBaseFriction");
+    params.delete("ffbPreset");
     params.delete("ffbParkingFriction");
     params.delete("ffbBaseDamper");
     params.delete("ffbSpeedDamper");
@@ -577,8 +602,9 @@ function makeActions(type, index) {
       ["throttleButton", "throttle"],
       ["brakeButton", "brake"],
       ["driveButton", "drive"],
-      ["paddleLeftButton", "paddleLeft"],
-      ["paddleRightButton", "paddleRight"]
+    ["paddleLeftButton", "paddleLeft"],
+      ["paddleRightButton", "paddleRight"],
+      ["ffbPresetButton", "ffbPresetButton"]
     ];
 
   for (const [field, labelKey] of labels) {
@@ -693,6 +719,8 @@ function fieldLabel(field) {
       return t("paddleLeft");
     case "paddleRightButton":
       return t("paddleRight");
+    case "ffbPresetButton":
+      return t("ffbPresetButton");
     default:
       return field;
   }
@@ -982,6 +1010,7 @@ clearMappingEl.addEventListener("click", () => {
 
 Object.values(optionInputs).forEach((input) => {
   input.addEventListener("input", updateMappingOutput);
+  input.addEventListener("change", updateMappingOutput);
 });
 
 captureButtons.forEach((button) => {
