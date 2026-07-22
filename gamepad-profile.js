@@ -64,35 +64,40 @@
     };
   }
 
-  function load(storage) {
+  function storageKey(scope) {
+    const normalizedScope = String(scope || '').trim();
+    return normalizedScope ? `${STORAGE_KEY}:${encodeURIComponent(normalizedScope)}` : STORAGE_KEY;
+  }
+
+  function load(storage, scope) {
     try {
-      const raw = storage?.getItem(STORAGE_KEY);
+      const raw = storage?.getItem(storageKey(scope));
       return raw ? normalizeStore(JSON.parse(raw)) : emptyStore();
     } catch (_) {
       return emptyStore();
     }
   }
 
-  function persist(storage, store) {
+  function persist(storage, store, scope) {
     const normalized = normalizeStore(store);
-    storage?.setItem(STORAGE_KEY, JSON.stringify(normalized));
+    storage?.setItem(storageKey(scope), JSON.stringify(normalized));
     return normalized;
   }
 
-  function saveProfile(storage, store, profileKey, profile) {
+  function saveProfile(storage, store, profileKey, profile, scope) {
     const next = normalizeStore(store);
     next.activeProfileKey = profileKey;
     next.profiles[profileKey] = { ...profile, profileKey };
-    return persist(storage, next);
+    return persist(storage, next, scope);
   }
 
-  function removeProfile(storage, store, profileKey) {
+  function removeProfile(storage, store, profileKey, scope) {
     const next = normalizeStore(store);
     delete next.profiles[profileKey];
     if (next.activeProfileKey === profileKey) {
       next.activeProfileKey = '';
     }
-    return persist(storage, next);
+    return persist(storage, next, scope);
   }
 
   function profileForGamepad(store, gamepad) {
@@ -107,6 +112,7 @@
   window.FpvGamepadProfiles = {
     STORAGE_KEY,
     STORE_VERSION,
+    storageKey,
     emptyStore,
     load,
     persist,

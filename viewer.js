@@ -113,8 +113,8 @@
   // ffbTest は過去の検証 URL 向けの互換名。通常は gamepad.html の ffbEnabled を使う。
   const FFB_ENABLED = getBooleanParam('ffbEnabled', getBooleanParam('ffbTest', false));
   const FFB_BRIDGE_URL = getStringParam('ffbUrl', 'ws://127.0.0.1:24725');
-  const FFB_BASE_FRICTION = Math.max(0, Math.min(1.0, getNumberParam('ffbBaseFriction', 0.10)));
-  const FFB_PARKING_FRICTION = Math.max(0, Math.min(1.0, getNumberParam('ffbParkingFriction', 0.30)));
+  const FFB_BASE_FRICTION = Math.max(0, Math.min(1.0, getNumberParam('ffbBaseFriction', 0.28)));
+  const FFB_PARKING_FRICTION = Math.max(0, Math.min(1.0, getNumberParam('ffbParkingFriction', 0.08)));
   const FFB_BASE_DAMPER = Math.max(0, Math.min(1.0, getNumberParam('ffbBaseDamper', 0.05)));
   const FFB_SPEED_DAMPER = Math.max(0, Math.min(1.0, getNumberParam('ffbSpeedDamper', 0.15)));
   const FFB_RUNNING_CENTERING = Math.max(0, Math.min(1.0, getNumberParam('ffbRunningCentering', 0.20)));

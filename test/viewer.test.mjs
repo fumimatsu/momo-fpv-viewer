@@ -203,10 +203,10 @@ test('FFB presets are configured from the input setup and selectable in the View
   assert.match(gamepadJs, /ffbPreset: "medium"/);
   assert.match(gamepadJs, /ffbPresetButton: null/);
   assert.match(gamepadJs, /params\.set\("ffbEnabled", mapping\.ffbEnabled \? "1" : "0"\)/);
-  assert.match(gamepadJs, /ffbBaseFriction: 0\.10/);
-  assert.match(gamepadJs, /ffbParkingFriction: 0\.30/);
-  assert.match(gamepadJs, /params\.set\("ffbBaseFriction", String\(mapping\.ffbBaseFriction \?\? 0\.10\)\)/);
-  assert.match(gamepadJs, /params\.set\("ffbParkingFriction", String\(mapping\.ffbParkingFriction \?\? 0\.30\)\)/);
+  assert.match(gamepadJs, /ffbBaseFriction: 0\.28/);
+  assert.match(gamepadJs, /ffbParkingFriction: 0\.08/);
+  assert.match(gamepadJs, /params\.set\("ffbBaseFriction", String\(mapping\.ffbBaseFriction \?\? 0\.28\)\)/);
+  assert.match(gamepadJs, /params\.set\("ffbParkingFriction", String\(mapping\.ffbParkingFriction \?\? 0\.08\)\)/);
   assert.match(gamepadJs, /params\.set\("ffbRunningCentering", String\(mapping\.ffbRunningCentering \?\? 0\.20\)\)/);
   assert.match(gamepadJs, /params\.set\("ffbPreset", normalizeFfbPreset\(mapping\.ffbPreset\)\)/);
   assert.match(gamepadJs, /params\.set\("gamepadFfbPresetButton", String\(mapping\.ffbPresetButton\)\)/);
@@ -246,8 +246,8 @@ test('FFB presets are configured from the input setup and selectable in the View
   assert.match(bridgeClient, /deviceCapabilities/);
   assert.match(relayJs, /function updateFfbVehicleState\(\)/);
   assert.match(bridgeServer, /string\.Equals\(effectMode, "baseline", StringComparison\.OrdinalIgnoreCase\)/);
-  assert.match(bridgeServer, /ReadDouble\(root, "baseFriction", 0\.10\)/);
-  assert.match(bridgeServer, /ReadDouble\(root, "parkingFriction", 0\.30\)/);
+  assert.match(bridgeServer, /ReadDouble\(root, "baseFriction", 0\.28\)/);
+  assert.match(bridgeServer, /ReadDouble\(root, "parkingFriction", 0\.08\)/);
   assert.match(bridgeServer, /friction = ClampUnit\(baseFriction \+ parkingFriction \* lowSpeed \* lowSpeed\)/);
   assert.match(bridgeServer, /damper = ClampUnit\(baseDamper \+ speedDamper \* speed \* speed\)/);
   assert.match(bridgeServer, /torque = ClampSignedUnit\(virtualSteering \* runningCentering \* centeringWeight \* centeringDirection\)/);

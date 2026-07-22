@@ -223,8 +223,8 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
                     if (string.Equals(effectMode, "baseline", StringComparison.OrdinalIgnoreCase))
                     {
                         var speed = ClampUnit(ReadDouble(root, "speedProxy", 0));
-                        var baseFriction = ClampUnit(ReadDouble(root, "baseFriction", 0.10));
-                        var parkingFriction = ClampUnit(ReadDouble(root, "parkingFriction", 0.30));
+                        var baseFriction = ClampUnit(ReadDouble(root, "baseFriction", 0.28));
+                        var parkingFriction = ClampUnit(ReadDouble(root, "parkingFriction", 0.08));
                         var baseDamper = ClampUnit(ReadDouble(root, "baseDamper", 0.05));
                         var speedDamper = ClampUnit(ReadDouble(root, "speedDamper", 0.15));
                         var lowSpeed = 1.0 - speed;

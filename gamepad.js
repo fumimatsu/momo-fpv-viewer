@@ -32,6 +32,13 @@ const optionInputs = {
 
 const profileApi = window.FpvGamepadProfiles;
 const legacyStorageKey = "fpvGamepadMapping";
+const pageParams = new URLSearchParams(location.search);
+const targetDevice = pageParams.get("device")?.trim() || "";
+const relayPilotTarget = pageParams.get("viewer") === "relay-pilot";
+const profileScope = targetDevice ? `device:${targetDevice}` : "";
+const scopedLegacyStorageKey = targetDevice
+  ? `${legacyStorageKey}:${encodeURIComponent(targetDevice)}`
+  : legacyStorageKey;
 const languageStorageKey = "fpvGamepadLanguage";
 const axisDeadzone = 0.003;
 const recentMs = 700;
@@ -42,7 +49,7 @@ const states = new Map();
 let lastSeen = 0;
 let selectedGamepadIndex = null;
 let selectedProfileKey = "";
-let profileStore = profileApi.load(window.localStorage);
+let profileStore = profileApi.load(window.localStorage, profileScope);
 let legacyMapping = null;
 let currentLanguage = loadLanguage();
 
@@ -228,8 +235,8 @@ function createDefaultMapping() {
     pedalDeadzone: 0.05,
     ffbEnabled: false,
     ffbPreset: "medium",
-    ffbBaseFriction: 0.10,
-    ffbParkingFriction: 0.30,
+    ffbBaseFriction: 0.28,
+    ffbParkingFriction: 0.08,
     ffbBaseDamper: 0.05,
     ffbSpeedDamper: 0.15,
     ffbRunningCentering: 0.20,
@@ -302,7 +309,7 @@ function buttonPercent(value) {
 
 function loadSavedMapping() {
   try {
-    const raw = window.localStorage?.getItem(legacyStorageKey);
+    const raw = window.localStorage?.getItem(scopedLegacyStorageKey);
     if (raw) {
       const saved = JSON.parse(raw);
       if (saved && typeof saved === "object") {
@@ -389,8 +396,8 @@ function syncOptionsFromMapping() {
   optionInputs.pedalDeadzone.value = String(mapping.pedalDeadzone ?? 0.05);
   optionInputs.ffbEnabled.checked = Boolean(mapping.ffbEnabled);
   optionInputs.ffbPreset.value = normalizeFfbPreset(mapping.ffbPreset);
-  optionInputs.ffbBaseFriction.value = String(mapping.ffbBaseFriction ?? 0.10);
-  optionInputs.ffbParkingFriction.value = String(mapping.ffbParkingFriction ?? 0.30);
+  optionInputs.ffbBaseFriction.value = String(mapping.ffbBaseFriction ?? 0.28);
+  optionInputs.ffbParkingFriction.value = String(mapping.ffbParkingFriction ?? 0.08);
   optionInputs.ffbBaseDamper.value = String(mapping.ffbBaseDamper ?? 0.05);
   optionInputs.ffbSpeedDamper.value = String(mapping.ffbSpeedDamper ?? 0.15);
   optionInputs.ffbRunningCentering.value = String(mapping.ffbRunningCentering ?? 0.20);
@@ -407,8 +414,8 @@ function syncMappingFromOptions() {
   mapping.pedalDeadzone = numberFromInput(optionInputs.pedalDeadzone, 0.05);
   mapping.ffbEnabled = Boolean(optionInputs.ffbEnabled.checked);
   mapping.ffbPreset = normalizeFfbPreset(optionInputs.ffbPreset.value);
-  mapping.ffbBaseFriction = clamp01(numberFromInput(optionInputs.ffbBaseFriction, 0.10));
-  mapping.ffbParkingFriction = clamp01(numberFromInput(optionInputs.ffbParkingFriction, 0.30));
+  mapping.ffbBaseFriction = clamp01(numberFromInput(optionInputs.ffbBaseFriction, 0.28));
+  mapping.ffbParkingFriction = clamp01(numberFromInput(optionInputs.ffbParkingFriction, 0.08));
   mapping.ffbBaseDamper = clamp01(numberFromInput(optionInputs.ffbBaseDamper, 0.05));
   mapping.ffbSpeedDamper = clamp01(numberFromInput(optionInputs.ffbSpeedDamper, 0.15));
   mapping.ffbRunningCentering = clamp01(numberFromInput(optionInputs.ffbRunningCentering, 0.20));
@@ -417,8 +424,14 @@ function syncMappingFromOptions() {
 }
 
 function buildViewerUrl() {
-  const url = new URL(openViewerEl?.getAttribute("href") || "./viewer.html", location.href);
+  const url = new URL(
+    relayPilotTarget ? "./pilot.html" : (openViewerEl?.getAttribute("href") || "./viewer.html"),
+    location.href
+  );
   const params = new URLSearchParams(url.hash.replace(/^#\??/, ""));
+  if (targetDevice) {
+    url.searchParams.set("device", targetDevice);
+  }
   params.set("gamepad", "1");
   params.set("gamepadIndex", String(mapping.index ?? 0));
   if (selectedProfileKey) {
@@ -467,8 +480,8 @@ function buildViewerUrl() {
   params.set("ffbEnabled", mapping.ffbEnabled ? "1" : "0");
   if (mapping.ffbEnabled) {
     params.set("ffbPreset", normalizeFfbPreset(mapping.ffbPreset));
-    params.set("ffbBaseFriction", String(mapping.ffbBaseFriction ?? 0.10));
-    params.set("ffbParkingFriction", String(mapping.ffbParkingFriction ?? 0.30));
+    params.set("ffbBaseFriction", String(mapping.ffbBaseFriction ?? 0.28));
+    params.set("ffbParkingFriction", String(mapping.ffbParkingFriction ?? 0.08));
     params.set("ffbBaseDamper", String(mapping.ffbBaseDamper ?? 0.05));
     params.set("ffbSpeedDamper", String(mapping.ffbSpeedDamper ?? 0.15));
     params.set("ffbRunningCentering", String(mapping.ffbRunningCentering ?? 0.20));
@@ -484,7 +497,9 @@ function buildViewerUrl() {
     params.delete("ffbCenteringReverse");
     params.delete("ffbUrl");
   }
-  url.search = "";
+  if (!targetDevice) {
+    url.search = "";
+  }
   url.hash = params.toString();
   return url.toString();
 }
@@ -758,20 +773,21 @@ function saveMapping() {
       window.localStorage,
       profileStore,
       identity.key,
-      mapping
+      mapping,
+      profileScope
     );
     profileStatusEl.textContent = `${identity.label} / ${t("profileLoaded")}`;
   }
-  window.localStorage?.setItem(legacyStorageKey, JSON.stringify(mapping));
+  window.localStorage?.setItem(scopedLegacyStorageKey, JSON.stringify(mapping));
   updateMappingOutput();
   assignStatusEl.textContent = t("savedForViewer");
 }
 
 function clearSavedMapping() {
   if (selectedProfileKey) {
-    profileStore = profileApi.removeProfile(window.localStorage, profileStore, selectedProfileKey);
+    profileStore = profileApi.removeProfile(window.localStorage, profileStore, selectedProfileKey, profileScope);
   }
-  window.localStorage?.removeItem(legacyStorageKey);
+  window.localStorage?.removeItem(scopedLegacyStorageKey);
   const gamepad = getSelectedGamepad();
   if (gamepad) {
     legacyMapping = null;
