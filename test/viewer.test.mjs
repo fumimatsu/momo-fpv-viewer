@@ -158,19 +158,25 @@ test('Race start signal can run as a local demo loop', () => {
   assert.match(js, /signalDemo: RACE_SIGNAL_DEMO/);
 });
 
-test('Relay Pilot exposes a right-side battle meter without calculating timing gaps', () => {
+test('Relay Pilot exposes a compact transparent battle meter below the position display', () => {
   const relayHtml = readProjectFile('variants/relay/pilot.html');
   const relayJs = readProjectFile('variants/relay/pilot.js');
   assert.match(relayHtml, /id="raceBattle" class="race-battle race-card"/);
   assert.match(relayHtml, /id="raceBattleAhead"/);
   assert.match(relayHtml, /id="raceBattleBehind"/);
   assert.match(relayHtml, /\.race-battle \{/);
+  assert.match(relayHtml, /top: calc\(142px \+ env\(safe-area-inset-top\)\);/);
+  assert.match(relayHtml, /right: calc\(16px \+ env\(safe-area-inset-right\)\);/);
+  assert.match(relayHtml, /width: min\(150px, calc\(100vw - 32px\)\);/);
+  assert.match(relayHtml, /border: 0;/);
+  assert.match(relayHtml, /background: transparent;/);
+  assert.match(relayHtml, /box-shadow: none;/);
   assert.match(relayHtml, /\.race-battle-rival\.ahead/);
   assert.match(relayHtml, /class="race-battle-car" aria-hidden="true"/);
   assert.match(relayHtml, /\.race-battle-car::before/);
   assert.match(relayHtml, /\.race-battle-name \{[\s\S]*?grid-column: 2;/);
-  assert.match(relayHtml, /\.race-battle-car \{[\s\S]*?width: 50px;/);
-  assert.match(relayHtml, /--race-car: rgba\(118, 224, 244, 0\.78\);/);
+  assert.match(relayHtml, /\.race-battle-car \{[\s\S]*?width: 34px;/);
+  assert.match(relayHtml, /--race-car: rgba\(118, 224, 244, 0\.48\);/);
   assert.doesNotMatch(relayHtml, /\.race-battle-rival\.ahead \.race-battle-car/);
   assert.doesNotMatch(relayHtml, /\.race-battle-rival\.behind \.race-battle-car/);
   assert.match(relayJs, /const RACE_BATTLE_ENABLED = getBooleanParam\('raceBattle', true\)/);

@@ -192,13 +192,19 @@
 
     .race-battle {
       position: fixed;
-      top: calc(156px + env(safe-area-inset-top));
-      right: calc(184px + env(safe-area-inset-right));
+      /* 順位表示の直下に置く。映像上の走行ラインを隠さないよう、カード枠は使わない。 */
+      top: calc(142px + env(safe-area-inset-top));
+      right: calc(16px + env(safe-area-inset-right));
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
-      width: min(208px, calc(100vw - 32px));
-      height: clamp(300px, 42vh, 360px);
-      padding: 10px 11px 11px;
+      width: min(150px, calc(100vw - 32px));
+      height: clamp(210px, 31vh, 250px);
+      padding: 0;
+      border: 0;
+      background: transparent;
+      box-shadow: none;
+      clip-path: none;
+      backdrop-filter: none;
       transform: scale(var(--osd-scale));
       transform-origin: top right;
     }
@@ -215,9 +221,9 @@
     }
 
     .race-battle-state {
-      color: #7ddcf0;
+      color: rgba(169, 197, 221, 0.78);
       font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
-      font-size: 10px;
+      font-size: 8px;
       font-weight: 700;
       letter-spacing: 0;
       white-space: nowrap;
@@ -234,21 +240,21 @@
     .race-battle-track {
       position: relative;
       min-height: 0;
-      margin-top: 7px;
+      margin-top: 3px;
     }
 
     .race-battle-track::before {
       position: absolute;
       top: 7%;
       bottom: 7%;
-      left: 47px;
+      left: 35px;
       width: 1px;
       background: repeating-linear-gradient(
         to bottom,
-        rgba(173, 221, 240, 0.64) 0 5px,
+        rgba(173, 221, 240, 0.30) 0 4px,
         transparent 5px 10px
       );
-      box-shadow: 0 0 7px rgba(103, 233, 255, 0.36);
+      box-shadow: none;
       content: "";
     }
 
@@ -258,11 +264,11 @@
       right: 0;
       left: 0;
       display: grid;
-      grid-template-columns: 23px 50px minmax(0, 1fr);
+      grid-template-columns: 18px 34px minmax(0, 1fr);
       align-items: center;
-      gap: 6px;
-      min-height: 48px;
-      padding: 4px 4px 4px 0;
+      gap: 4px;
+      min-height: 34px;
+      padding: 2px 0;
     }
 
     .race-battle-rival.ahead {
@@ -281,7 +287,7 @@
     .race-battle-position {
       color: #a9c5dd;
       font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
-      font-size: 12px;
+      font-size: 10px;
       font-weight: 700;
       text-align: right;
     }
@@ -290,15 +296,15 @@
       z-index: 1;
       grid-column: 2;
       grid-row: 1;
-      width: 50px;
-      max-width: 50px;
-      padding: 1px 2px;
+      width: 34px;
+      max-width: 34px;
+      padding: 0;
       overflow: hidden;
-      border-radius: 2px;
-      background: rgba(2, 11, 17, 0.58);
-      color: #e7f3fb;
+      border-radius: 0;
+      background: transparent;
+      color: rgba(231, 243, 251, 0.76);
       font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
-      font-size: 9px;
+      font-size: 8px;
       font-weight: 700;
       letter-spacing: 0;
       line-height: 1.15;
@@ -311,31 +317,31 @@
       grid-column: 3;
       grid-row: 1;
       justify-self: end;
-      color: #f7fbff;
+      color: rgba(247, 251, 255, 0.78);
       font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
-      font-size: 12px;
+      font-size: 10px;
       font-weight: 700;
       text-align: right;
       white-space: nowrap;
     }
 
     .race-battle-car {
-      --race-car: rgba(118, 224, 244, 0.78);
+      --race-car: rgba(118, 224, 244, 0.48);
       position: relative;
       z-index: 0;
       grid-column: 2;
       grid-row: 1;
       display: block;
-      width: 50px;
-      height: 40px;
-      opacity: 0.82;
-      filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.9));
+      width: 34px;
+      height: 27px;
+      opacity: 0.56;
+      filter: none;
     }
 
     .race-battle-car::before {
       position: absolute;
-      inset: 0 7px;
-      border: 1px solid rgba(255, 255, 255, 0.75);
+      inset: 0 5px;
+      border: 1px solid rgba(255, 255, 255, 0.46);
       background: var(--race-car);
       clip-path: polygon(29% 0, 71% 0, 88% 19%, 100% 36%, 100% 79%, 78% 100%, 22% 100%, 0 79%, 0 36%, 12% 19%);
       content: "";
@@ -343,10 +349,10 @@
 
     .race-battle-car::after {
       position: absolute;
-      top: 9px;
-      left: 16px;
-      width: 18px;
-      height: 12px;
+      top: 6px;
+      left: 11px;
+      width: 12px;
+      height: 8px;
       border: 1px solid rgba(1, 11, 18, 0.86);
       background: rgba(225, 248, 255, 0.78);
       clip-path: polygon(22% 0, 78% 0, 100% 100%, 0 100%);
@@ -355,36 +361,35 @@
 
     .race-battle-car-wheels {
       position: absolute;
-      top: 5px;
+      top: 3px;
       left: 0;
-      width: 7px;
-      height: 9px;
+      width: 5px;
+      height: 6px;
       border-radius: 1px;
       background: #050608;
-      box-shadow: 0 20px 0 #050608, 43px 0 0 #050608, 43px 20px 0 #050608;
+      box-shadow: 0 14px 0 #050608, 29px 0 0 #050608, 29px 14px 0 #050608;
     }
 
     .race-battle-self {
       top: 50%;
-      min-height: 52px;
-      border-top: 1px solid rgba(103, 233, 255, 0.9);
-      border-bottom: 1px solid rgba(103, 233, 255, 0.9);
-      background: rgba(12, 77, 99, 0.62);
-      box-shadow: 0 0 14px rgba(103, 233, 255, 0.28);
+      min-height: 36px;
+      border: 0;
+      background: transparent;
+      box-shadow: none;
       transform: translateY(-50%);
     }
 
     .race-battle-self .race-battle-position {
-      color: #67e9ff;
+      color: rgba(103, 233, 255, 0.84);
     }
 
     .race-battle-self .race-battle-name {
-      color: #ffffff;
+      color: rgba(255, 255, 255, 0.84);
     }
 
     .race-battle-self .race-battle-gap {
-      color: #67e9ff;
-      font-size: 10px;
+      color: rgba(103, 233, 255, 0.82);
+      font-size: 9px;
       letter-spacing: 0;
     }
 
@@ -1282,11 +1287,11 @@
       }
 
       .race-battle {
-        top: calc(128px + env(safe-area-inset-top));
+        top: calc(116px + env(safe-area-inset-top));
         right: calc(8px + env(safe-area-inset-right));
-        width: min(158px, calc(100vw - 16px));
-        height: clamp(190px, 34vh, 260px);
-        padding: 8px 8px 9px;
+        width: min(140px, calc(100vw - 16px));
+        height: clamp(180px, 30vh, 220px);
+        padding: 0;
       }
 
       .race-battle-rival,
