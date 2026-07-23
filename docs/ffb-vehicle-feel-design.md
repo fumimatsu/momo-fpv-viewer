@@ -4,6 +4,9 @@
 
 This design creates a controllable vehicle-feel model for an FPV RC car. It is not a mechanical connection to the RC steering rack, so every synthetic element must be identifiable, bounded, and removable.
 
+The telemetry-derived feature contract, parameter measurement methods, and
+post-baseline delivery stages are defined in [FFB Telemetry Feature Roadmap](ffb-telemetry-feature-roadmap.md).
+
 ## Layer Model
 
 ```text
