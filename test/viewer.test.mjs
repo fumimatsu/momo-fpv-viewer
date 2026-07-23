@@ -134,11 +134,58 @@ test('Race Control WebSocket can be manually connected from the Viewer', () => {
   assert.match(js, /const RACE_AUTO_CONNECT = getBooleanParam\('raceConnect'/);
   assert.match(js, /function toggleRaceControlConnection\(\)/);
   assert.match(js, /btnRaceConnect\?\.addEventListener\('click', toggleRaceControlConnection\)/);
-  assert.match(js, /if \(RACE_AUTO_CONNECT\) \{\s*connectRaceControl\(\);/);
+  assert.match(js, /if \(RACE_LOCAL_DEMO\) \{\s*startRaceSignalDemo\(\);\s*\} else if \(RACE_AUTO_CONNECT\) \{\s*connectRaceControl\(\);/);
   assert.match(js, /recordEvent\('race manual connect'\)/);
   assert.match(js, /raceState = null;/);
   assert.match(js, /clearRaceCountdownTimer\(\)/);
+  assert.match(js, /clearRaceSignalDemoTimer\(\)/);
   assert.match(js, /autoConnect: RACE_AUTO_CONNECT/);
+});
+
+test('Race start signal can run as a local demo loop', () => {
+  const js = readProjectFile('viewer.js');
+  assert.match(js, /const RACE_SIGNAL_DEMO = getBooleanParam\('raceSignalDemo', false\)/);
+  assert.match(js, /const RACE_ANNOUNCE_DEMO = getBooleanParam\('raceAnnounceDemo', false\)/);
+  assert.match(js, /const RACE_LOCAL_DEMO = RACE_SIGNAL_DEMO \|\| RACE_ANNOUNCE_DEMO/);
+  assert.match(js, /const RACE_MODE = getBooleanParam\('raceMode', RACE_LOCAL_DEMO\)/);
+  assert.match(js, /RACE_MODE && !RACE_LOCAL_DEMO/);
+  assert.match(js, /const RACE_SIGNAL_DEMO_READY_MS = getNumberParam\('raceSignalDemoReadyMs', 1200\)/);
+  assert.match(js, /const RACE_SIGNAL_DEMO_GREEN_MS = getNumberParam\('raceSignalDemoGreenMs', 1800\)/);
+  assert.match(js, /function emitRaceSignalDemoState\(/);
+  assert.match(js, /raceId: 'local-signal-demo'/);
+  assert.match(js, /function startRaceSignalDemo\(\)/);
+  assert.match(js, /raceSignalDemoTimer = window\.setTimeout\(startRaceSignalDemo/);
+  assert.match(js, /signalDemo: RACE_SIGNAL_DEMO/);
+});
+
+test('Relay Pilot exposes a right-side battle meter without calculating timing gaps', () => {
+  const relayHtml = readProjectFile('variants/relay/pilot.html');
+  const relayJs = readProjectFile('variants/relay/pilot.js');
+  assert.match(relayHtml, /id="raceBattle" class="race-battle race-card"/);
+  assert.match(relayHtml, /id="raceBattleAhead"/);
+  assert.match(relayHtml, /id="raceBattleBehind"/);
+  assert.match(relayHtml, /\.race-battle \{/);
+  assert.match(relayHtml, /\.race-battle-rival\.ahead/);
+  assert.match(relayHtml, /class="race-battle-car" aria-hidden="true"/);
+  assert.match(relayHtml, /\.race-battle-car::before/);
+  assert.match(relayHtml, /\.race-battle-name \{[\s\S]*?grid-column: 2;/);
+  assert.match(relayHtml, /\.race-battle-car \{[\s\S]*?width: 50px;/);
+  assert.match(relayHtml, /--race-car: rgba\(118, 224, 244, 0\.78\);/);
+  assert.doesNotMatch(relayHtml, /\.race-battle-rival\.ahead \.race-battle-car/);
+  assert.doesNotMatch(relayHtml, /\.race-battle-rival\.behind \.race-battle-car/);
+  assert.match(relayJs, /const RACE_BATTLE_ENABLED = getBooleanParam\('raceBattle', true\)/);
+  assert.match(relayJs, /const RACE_BATTLE_DEMO = getBooleanParam\('raceBattleDemo', false\)/);
+  assert.match(relayJs, /const RACE_BATTLE_MAX_GAP_MS = 5000/);
+  assert.match(relayJs, /const RACE_BATTLE_GAP_STEP_MS = 100/);
+  assert.match(relayJs, /function normalizeRaceRivals\(rivals\)/);
+  assert.match(relayJs, /intervalToAheadMs: normalizeRaceNumber\(entry\.intervalToAheadMs\)/);
+  assert.match(relayJs, /lapDeltaToAhead: normalizeRaceLapDelta\(entry\.lapDeltaToAhead\)/);
+  assert.match(relayJs, /function renderRaceBattle\(\)/);
+  assert.match(relayJs, /Math\.round\(milliseconds \/ RACE_BATTLE_GAP_STEP_MS\)/);
+  assert.match(relayJs, /Math\.min\(1, steppedMilliseconds \/ RACE_BATTLE_MAX_GAP_MS\)/);
+  assert.match(relayJs, /function createRaceBattleDemoState\(\)/);
+  assert.match(relayJs, /startRaceBattleDemo\(\);/);
+  assert.doesNotMatch(relayJs, /lastLapMs[^\n]*intervalToAheadMs/);
 });
 
 test('Race banner auto-hides during normal green running', () => {
@@ -166,6 +213,23 @@ test('Race countdown and start sound cues are available', () => {
   assert.match(js, /scheduleRaceCountdownTick\(payload\)/);
   assert.match(js, /window\.addEventListener\('pointerdown', unlockRaceSound\)/);
   assert.match(js, /soundUnlocked: raceSoundUnlocked/);
+});
+
+test('Race lap announcements use browser speech synthesis in Direct and Relay viewers', () => {
+  const js = readProjectFile('viewer.js');
+  const relayJs = readProjectFile('variants/relay/pilot.js');
+  for (const content of [js, relayJs]) {
+    assert.match(content, /const RACE_ANNOUNCE_ENABLED = getBooleanParam\('raceAnnounce'/);
+    assert.match(content, /function supportsRaceAnnouncement\(\)/);
+    assert.match(content, /window\.speechSynthesis\.getVoices\(\)/);
+    assert.match(content, /new window\.SpeechSynthesisUtterance\(announcement\.text\)/);
+    assert.match(content, /window\.speechSynthesis\.cancel\(\)/);
+    assert.match(content, /function announceRaceLapIfChanged\(/);
+    assert.match(content, /ベストラップです/);
+  }
+  assert.match(js, /const RACE_ANNOUNCE_DEMO = getBooleanParam\('raceAnnounceDemo', false\)/);
+  assert.match(js, /testRaceAnnouncement:/);
+  assert.match(relayJs, /testAnnouncement:/);
 });
 
 test('Audio and microphone controls can be fully hidden', () => {

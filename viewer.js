@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VIEWER_BUILD_ID = '20260723-race-start-signal';
+  const VIEWER_BUILD_ID = '20260723-race-browser-announce';
   const DEFAULT_HOST = '192.168.11.3:8080';
   const RECONNECT_BASE_DELAY_MS = 500;
   const RECONNECT_MAX_DELAY_MS = 5000;
@@ -98,17 +98,33 @@
   const ROOM_LOCK_TTL_SEC = getNumberParam('roomLockTtl', 30);
   const ROOM_LOCK_POLL_MS = getNumberParam('roomLockPollMs', 5000);
   const ROOM_LOCK_HEARTBEAT_MAX_FAILURES = Math.max(1, getIntegerParam('roomLockHeartbeatFailures', 3));
-  const RACE_MODE = getBooleanParam('raceMode', false);
+  const RACE_SIGNAL_DEMO = getBooleanParam('raceSignalDemo', false);
+  const RACE_ANNOUNCE_DEMO = getBooleanParam('raceAnnounceDemo', false);
+  const RACE_LOCAL_DEMO = RACE_SIGNAL_DEMO || RACE_ANNOUNCE_DEMO;
+  const RACE_MODE = getBooleanParam('raceMode', RACE_LOCAL_DEMO);
   const RACE_URL_RAW = getStringParam(['raceUrl', 'raceWs'], '');
   const RACE_TOKEN = getStringParam(['raceToken', 'viewerToken'], '');
   const RACE_CAR_ID = getStringParam(['carId', 'raceCarId'], getStringParam(['id'], ''));
-  const RACE_AUTO_CONNECT = getBooleanParam('raceConnect', getBooleanParam('raceAutoConnect', RACE_MODE));
+  const RACE_AUTO_CONNECT = getBooleanParam('raceConnect', getBooleanParam('raceAutoConnect', RACE_MODE && !RACE_LOCAL_DEMO));
   const RACE_RECONNECT_BASE_MS = getNumberParam('raceReconnectMs', 1000);
   const RACE_RECONNECT_MAX_MS = getNumberParam('raceReconnectMaxMs', 10000);
   const RACE_BANNER_TRANSIENT_MS = getNumberParam('raceBannerMs', 4000);
   const RACE_START_SIGNAL_LIGHT_COUNT = 5;
+  const RACE_SIGNAL_DEMO_READY_MS = getNumberParam('raceSignalDemoReadyMs', 1200);
+  const RACE_SIGNAL_DEMO_GREEN_MS = getNumberParam('raceSignalDemoGreenMs', 1800);
   const RACE_SOUND_ENABLED = getBooleanParam('raceSound', RACE_MODE);
   const RACE_SOUND_VOLUME = Math.max(0, Math.min(1, getNumberParamAllowZero('raceSoundVolume', 0.35)));
+  const RACE_ANNOUNCE_ENABLED = getBooleanParam('raceAnnounce', RACE_ANNOUNCE_DEMO);
+  const RACE_ANNOUNCE_LANGUAGE = getStringParam('raceAnnounceLang', 'ja-JP');
+  const RACE_ANNOUNCE_VOICE = getStringParam('raceAnnounceVoice', '');
+  const RACE_ANNOUNCE_RATE = Math.max(0.5, Math.min(2.5, getNumberParam('raceAnnounceRate', 1.1)));
+  const RACE_ANNOUNCE_VOLUME = Math.max(0, Math.min(1, getNumberParamAllowZero('raceAnnounceVolume', 0.9)));
+  const RACE_ANNOUNCE_DEMO_LAP_MS = Math.max(1, Math.round(getNumberParam('raceAnnounceDemoLapMs', 18320)));
+  const RACE_ANNOUNCE_DEMO_DELAY_MS = Math.max(0, getNumberParam('raceAnnounceDemoDelayMs', 700));
+  const RACE_ANNOUNCE_DEMO_GREEN_MS = Math.max(
+    RACE_SIGNAL_DEMO_GREEN_MS,
+    getNumberParam('raceAnnounceDemoGreenMs', 4500),
+  );
   const TELEMETRY_MOCK_ENABLED = getBooleanParam('telemetryMock', false);
   const TELEMETRY_MOCK_HZ = Math.max(1, Math.min(100, getNumberParam('telemetryMockHz', 20)));
   // ffbTest は過去の検証 URL 向けの互換名。通常は gamepad.html の ffbEnabled を使う。
@@ -331,8 +347,10 @@
   let raceAudioContext = null;
   let raceSoundUnlocked = false;
   let lastRaceSoundKey = '';
+  let lastRaceLapAnnouncementKey = '';
   let raceCountdownTimer = null;
   let raceServerClockOffsetMs = 0;
+  let raceSignalDemoTimer = null;
   const gamepadPedalIdle = {
     throttle: GAMEPAD_THROTTLE_IDLE,
     brake: GAMEPAD_BRAKE_IDLE,
@@ -1421,7 +1439,7 @@
     if (!RACE_MODE) {
       return 'Race';
     }
-    if (!RACE_URL_RAW) {
+    if (!RACE_URL_RAW && !RACE_LOCAL_DEMO) {
       return 'Race URL missing';
     }
     if (!state) {
@@ -1451,7 +1469,7 @@
     if (!RACE_MODE) {
       return 'off';
     }
-    if (!RACE_URL_RAW) {
+    if (!RACE_URL_RAW && !RACE_LOCAL_DEMO) {
       return 'set raceUrl';
     }
     if (!state) {
@@ -1493,7 +1511,7 @@
     if (!RACE_MODE) {
       return false;
     }
-    if (!RACE_URL_RAW || !state) {
+    if ((!RACE_URL_RAW && !RACE_LOCAL_DEMO) || !state) {
       return true;
     }
     if (getRaceCountdownText(state)) {
@@ -1673,6 +1691,120 @@
     }
   }
 
+  function supportsRaceAnnouncement() {
+    return typeof window.speechSynthesis !== 'undefined' &&
+      typeof window.SpeechSynthesisUtterance === 'function';
+  }
+
+  function prepareRaceAnnouncement() {
+    if (!RACE_ANNOUNCE_ENABLED || !supportsRaceAnnouncement()) {
+      return false;
+    }
+    try {
+      window.speechSynthesis.getVoices();
+      return true;
+    } catch (error) {
+      recordEvent('race announce unavailable', error.message || String(error));
+      return false;
+    }
+  }
+
+  function stopRaceAnnouncement() {
+    if (!supportsRaceAnnouncement()) {
+      return;
+    }
+    window.speechSynthesis.cancel();
+  }
+
+  function getRaceLapAnnouncement(state) {
+    const self = getRaceSelf(state);
+    const lap = Number(self?.lap);
+    const lapTimeMs = Number(self?.lastLapMs);
+    if (!Number.isFinite(lap) || lap < 1 || !Number.isFinite(lapTimeMs) || lapTimeMs <= 0) {
+      return null;
+    }
+    const roundedLapTimeMs = Math.round(lapTimeMs);
+    const seconds = Math.floor(roundedLapTimeMs / 1000);
+    const milliseconds = String(roundedLapTimeMs % 1000).padStart(3, '0');
+    const bestLapMs = Number(self?.bestLapMs);
+    const isBestLap = Number.isFinite(bestLapMs) && Math.round(bestLapMs) === roundedLapTimeMs;
+    return {
+      key: `${state?.raceId || 'race'}:${self?.carId || RACE_CAR_ID || 'self'}:${Math.floor(lap)}:${roundedLapTimeMs}`,
+      lap: Math.floor(lap),
+      text: `ラップ ${Math.floor(lap)}、${seconds}秒${milliseconds}${isBestLap ? '。ベストラップです。' : '。'}`,
+    };
+  }
+
+  function speakRaceLapAnnouncement(announcement) {
+    if (!RACE_ANNOUNCE_ENABLED || !announcement) {
+      return false;
+    }
+    if (!prepareRaceAnnouncement()) {
+      recordEvent('race announce unavailable', 'SpeechSynthesis');
+      return false;
+    }
+    try {
+      const utterance = new window.SpeechSynthesisUtterance(announcement.text);
+      utterance.lang = RACE_ANNOUNCE_LANGUAGE;
+      utterance.rate = RACE_ANNOUNCE_RATE;
+      utterance.volume = RACE_ANNOUNCE_VOLUME;
+      if (RACE_ANNOUNCE_VOICE) {
+        const voice = window.speechSynthesis.getVoices()
+          .find((candidate) => candidate.name === RACE_ANNOUNCE_VOICE);
+        if (voice) {
+          utterance.voice = voice;
+        } else {
+          recordEvent('race announce voice unavailable', RACE_ANNOUNCE_VOICE);
+        }
+      }
+      utterance.onerror = (event) => {
+        if (event.error !== 'canceled' && event.error !== 'interrupted') {
+          recordEvent('race announce failed', event.error || 'unknown');
+        }
+      };
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
+      recordEvent('race announce', announcement.text);
+      return true;
+    } catch (error) {
+      recordEvent('race announce failed', error.message || String(error));
+      return false;
+    }
+  }
+
+  function announceRaceLapIfChanged(previousState, nextState) {
+    const phase = String(nextState?.phase || '').toLowerCase();
+    if (phase === 'idle' || phase === 'ready') {
+      lastRaceLapAnnouncementKey = '';
+      stopRaceAnnouncement();
+      return;
+    }
+    const nextAnnouncement = getRaceLapAnnouncement(nextState);
+    if (!nextAnnouncement) {
+      return;
+    }
+    if (!previousState) {
+      lastRaceLapAnnouncementKey = nextAnnouncement.key;
+      return;
+    }
+    const previousAnnouncement = getRaceLapAnnouncement(previousState);
+    if (previousAnnouncement?.key === nextAnnouncement.key) {
+      return;
+    }
+    if (previousAnnouncement && previousAnnouncement.lap === nextAnnouncement.lap) {
+      lastRaceLapAnnouncementKey = nextAnnouncement.key;
+      return;
+    }
+    if (phase !== 'green' && phase !== 'finished') {
+      return;
+    }
+    if (nextAnnouncement.key === lastRaceLapAnnouncementKey) {
+      return;
+    }
+    lastRaceLapAnnouncementKey = nextAnnouncement.key;
+    speakRaceLapAnnouncement(nextAnnouncement);
+  }
+
   function updateRaceUi() {
     document.body.classList.toggle('race-mode', RACE_MODE);
     setText(raceWsState, getRaceWsStatus());
@@ -1747,22 +1879,92 @@
     raceBannerVisibleUntil = 0;
     lastRaceBannerEventKey = '';
     lastRaceSoundKey = '';
+    lastRaceLapAnnouncementKey = '';
     raceServerClockOffsetMs = 0;
+    stopRaceAnnouncement();
+    clearRaceSignalDemoTimer();
     clearRaceBannerHideTimer();
     clearRaceCountdownTimer();
     recordEvent('race closed', 'manual');
     updateRaceUi();
   }
 
+  function clearRaceSignalDemoTimer() {
+    if (!raceSignalDemoTimer) {
+      return;
+    }
+    window.clearTimeout(raceSignalDemoTimer);
+    raceSignalDemoTimer = null;
+  }
+
+  function emitRaceSignalDemoState(phase, startAtMs = null, message = '', selfPatch = {}) {
+    const now = Date.now();
+    handleRaceMessage({
+      type: 'race_state',
+      version: 1,
+      raceId: 'local-signal-demo',
+      phase,
+      flag: phase === 'green' ? 'green' : 'none',
+      serverTimeMs: now,
+      startAtMs,
+      countdown: Number.isFinite(startAtMs) ? Math.max(0, Math.ceil((startAtMs - now) / 1000)) : null,
+      message,
+      raceInfo: {
+        title: 'SIGNAL DEMO',
+        totalLaps: 3,
+      },
+      self: {
+        carId: RACE_CAR_ID || 'DEMO',
+        position: 1,
+        lap: 0,
+        ...selfPatch,
+      },
+      leaderboard: [],
+    });
+  }
+
+  function startRaceSignalDemo() {
+    if (!RACE_LOCAL_DEMO) {
+      return;
+    }
+    clearRaceSignalDemoTimer();
+    const countdownStartAtMs = Date.now() + RACE_SIGNAL_DEMO_READY_MS + (RACE_START_SIGNAL_LIGHT_COUNT * 1000);
+    emitRaceSignalDemoState('ready', null, 'local signal demo');
+    raceSignalDemoTimer = window.setTimeout(() => {
+      emitRaceSignalDemoState('countdown', countdownStartAtMs, 'start sequence');
+      raceSignalDemoTimer = window.setTimeout(() => {
+        emitRaceSignalDemoState('green', null, 'go');
+        if (RACE_ANNOUNCE_DEMO) {
+          const delay = Math.min(RACE_ANNOUNCE_DEMO_DELAY_MS, RACE_ANNOUNCE_DEMO_GREEN_MS);
+          raceSignalDemoTimer = window.setTimeout(() => {
+            emitRaceSignalDemoState('green', null, 'demo lap', {
+              lap: 1,
+              lastLapMs: RACE_ANNOUNCE_DEMO_LAP_MS,
+              bestLapMs: RACE_ANNOUNCE_DEMO_LAP_MS,
+            });
+            raceSignalDemoTimer = window.setTimeout(
+              startRaceSignalDemo,
+              Math.max(0, RACE_ANNOUNCE_DEMO_GREEN_MS - delay),
+            );
+          }, delay);
+          return;
+        }
+        raceSignalDemoTimer = window.setTimeout(startRaceSignalDemo, Math.max(0, RACE_SIGNAL_DEMO_GREEN_MS));
+      }, Math.max(0, countdownStartAtMs - Date.now()));
+    }, Math.max(0, RACE_SIGNAL_DEMO_READY_MS));
+  }
+
   function handleRaceMessage(payload) {
     if (!payload || payload.type !== 'race_state') {
       return;
     }
+    const previousRaceState = raceState;
     updateRaceClockOffset(payload);
     raceState = payload;
     lastRaceMessageAt = performance.now();
     markRaceBannerEvent(payload);
     playRaceSoundForState(payload);
+    announceRaceLapIfChanged(previousRaceState, payload);
     scheduleRaceCountdownTick(payload);
     updateRaceUi();
   }
@@ -4596,6 +4798,8 @@
   window.addEventListener('keyup', onControlKeyUp);
   window.addEventListener('pointerdown', unlockRaceSound);
   window.addEventListener('keydown', unlockRaceSound);
+  window.addEventListener('pointerdown', prepareRaceAnnouncement);
+  window.addEventListener('keydown', prepareRaceAnnouncement);
   remoteVideo.addEventListener('loadedmetadata', updateUiState);
   remoteVideo.addEventListener('resize', updateUiState);
   if (micVolumeInput) {
@@ -4618,6 +4822,11 @@
     setMicToneEnabled,
     connectRaceControl,
     closeRaceControl,
+    testRaceAnnouncement: () => speakRaceLapAnnouncement({
+      key: 'manual-test',
+      lap: 1,
+      text: 'ラップ 1、18秒320。ベストラップです。',
+    }),
     injectTelemetry: (message) => applyTelemetry(message, 'manual'),
     emitMockTelemetryImpact,
     getDiagnostics: () => ({
@@ -4685,6 +4894,8 @@
         : { available: false },
       race: {
         enabled: RACE_MODE,
+        signalDemo: RACE_SIGNAL_DEMO,
+        announcementDemo: RACE_ANNOUNCE_DEMO,
         autoConnect: RACE_AUTO_CONNECT,
         url: normalizeRaceControlUrl(),
         carId: RACE_CAR_ID,
@@ -4693,6 +4904,15 @@
         soundEnabled: RACE_SOUND_ENABLED,
         soundUnlocked: raceSoundUnlocked,
         audioContextState: raceAudioContext?.state || 'none',
+        announcement: {
+          enabled: RACE_ANNOUNCE_ENABLED,
+          supported: supportsRaceAnnouncement(),
+          language: RACE_ANNOUNCE_LANGUAGE,
+          voice: RACE_ANNOUNCE_VOICE || null,
+          rate: RACE_ANNOUNCE_RATE,
+          volume: RACE_ANNOUNCE_VOLUME,
+          lastKey: lastRaceLapAnnouncementKey || null,
+        },
         lastMessageAgeMs: lastRaceMessageAt > 0
           ? Math.round(performance.now() - lastRaceMessageAt)
           : null,
@@ -4739,7 +4959,9 @@
   startRoomLockStatusMonitor();
   startGamepadPoller();
   updateGearUi();
-  if (RACE_AUTO_CONNECT) {
+  if (RACE_LOCAL_DEMO) {
+    startRaceSignalDemo();
+  } else if (RACE_AUTO_CONNECT) {
     connectRaceControl();
   } else {
     recordEvent('race manual connect');

@@ -17,6 +17,12 @@ Direct Viewer は Pi の `serial` DataChannel と Ayame signaling を扱う。Re
 
 共通の UI や Gamepad profile、Race HUD の変更は両 Variant へ意図して反映する。片方だけを編集して「最新」と扱うことを禁止する。
 
+ただし、開催レースが Local Relay 経由に限定される現在は、前後車両の
+`intervalToAheadMs` を使う Battle Meter は Relay Pilot 専用とする。正本は
+`variants/relay/pilot.html` / `variants/relay/pilot.js` であり、Direct Viewer へは
+転記しない。Gap の算出は Relay ではなく、Race Control に状態を送る計時側
+（MADSYSTEM）に置く。
+
 ## FFB の扱い
 
 FFB はブラウザ機能ではない。Viewer PC 上のネイティブ bridge が DirectInput / MOZA Pit House と連携して出力する。ブラウザ側は localhost Bridge の WebSocket client だけを持ち、FFB bridge 自体を `momo` や Pi へ混在させない。`ffb-bridge.js` は Direct と Relay で同一内容を維持する。
