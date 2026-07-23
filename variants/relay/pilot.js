@@ -112,6 +112,8 @@
   const ROOM_LOCK_TTL_SEC = getNumberParam('roomLockTtl', 30);
   const ROOM_LOCK_POLL_MS = getNumberParam('roomLockPollMs', 5000);
   const ROOM_LOCK_HEARTBEAT_MAX_FAILURES = Math.max(1, getIntegerParam('roomLockHeartbeatFailures', 3));
+  const RACE_START_SIGNAL_LIGHT_COUNT = 5;
+  const RACE_START_SIGNAL_GREEN_MS = getNumberParam('raceSignalMs', 4000);
 
   const remoteVideo = document.getElementById('remote_video');
   const endpointInput = document.getElementById('endpoint');
@@ -145,6 +147,8 @@
   const modeState = document.getElementById('modeState');
   const deviceState = document.getElementById('deviceState');
   const racePhase = document.getElementById('racePhase');
+  const raceStartSignal = document.getElementById('raceStartSignal');
+  const raceStartSignalLights = Array.from(document.querySelectorAll('[data-race-signal-light]'));
   const raceLapCount = document.getElementById('raceLapCount');
   const raceCurrentLap = document.getElementById('raceCurrentLap');
   const raceLastLap = document.getElementById('raceLastLap');
@@ -293,9 +297,12 @@
   let roomLockHeartbeatTimer = null;
   let roomLockHeartbeatFailures = 0;
   let activeRaceRunId = '';
+  let raceServerClockOffsetMs = 0;
+  let raceStartSignalGreenUntil = 0;
   const receivedRaceLapHistory = new Map();
   const raceState = {
     phase: 'STANDBY',
+    phaseCode: 'idle',
     lap: null,
     lapCount: null,
     position: null,
@@ -304,6 +311,8 @@
     currentLapMs: null,
     lastLapMs: null,
     bestLapMs: null,
+    startAtMs: null,
+    serverTimeMs: null,
     laps: [],
     clockRunning: false,
     sampledAt: 0,
@@ -931,6 +940,79 @@
       .sort((left, right) => right.lap - left.lap);
   }
 
+  function normalizeRacePhaseCode(phase) {
+    const value = String(phase || '').trim().toLowerCase();
+    switch (value) {
+      case 'standby':
+        return 'idle';
+      case 'running':
+        return 'green';
+      default:
+        return value || 'idle';
+    }
+  }
+
+  function updateRaceClockOffset(state) {
+    if (Number.isFinite(state?.serverTimeMs)) {
+      raceServerClockOffsetMs = Number(state.serverTimeMs) - Date.now();
+    }
+  }
+
+  function getRaceDisplayNowMs() {
+    return Date.now() + raceServerClockOffsetMs;
+  }
+
+  function getRaceCountdownSeconds() {
+    if (Number.isFinite(raceState.startAtMs)) {
+      return Math.ceil((Number(raceState.startAtMs) - getRaceDisplayNowMs()) / 1000);
+    }
+    return null;
+  }
+
+  function getRaceStartSignalState() {
+    if (raceState.phaseCode === 'green') {
+      return {
+        visible: raceStartSignalGreenUntil > performance.now(),
+        mode: 'green',
+        litCount: RACE_START_SIGNAL_LIGHT_COUNT,
+      };
+    }
+    if (raceState.phaseCode === 'ready') {
+      return { visible: true, mode: 'ready', litCount: 0 };
+    }
+    if (raceState.phaseCode === 'countdown') {
+      const remaining = getRaceCountdownSeconds();
+      if (!Number.isFinite(remaining)) {
+        return { visible: true, mode: 'red', litCount: 0 };
+      }
+      if (remaining <= 0) {
+        return { visible: true, mode: 'red', litCount: RACE_START_SIGNAL_LIGHT_COUNT };
+      }
+      const litCount = remaining > RACE_START_SIGNAL_LIGHT_COUNT
+        ? 0
+        : RACE_START_SIGNAL_LIGHT_COUNT - Math.max(1, remaining) + 1;
+      return {
+        visible: true,
+        mode: 'red',
+        litCount: Math.max(0, Math.min(RACE_START_SIGNAL_LIGHT_COUNT, litCount)),
+      };
+    }
+    return { visible: false, mode: 'off', litCount: 0 };
+  }
+
+  function renderRaceStartSignal() {
+    if (!raceStartSignal) {
+      return;
+    }
+    const signal = getRaceStartSignalState();
+    raceStartSignal.dataset.mode = signal.mode;
+    raceStartSignal.dataset.lit = String(signal.litCount);
+    raceStartSignal.classList.toggle('race-start-signal-hidden', !signal.visible);
+    raceStartSignalLights.forEach((light, index) => {
+      light.classList.toggle('is-lit', index < signal.litCount);
+    });
+  }
+
   function renderRaceHud() {
     const lap = raceState.lap === null ? '--' : String(raceState.lap);
     const lapCount = raceState.lapCount === null ? '--' : String(raceState.lapCount);
@@ -942,6 +1024,7 @@
     setText(raceLastLap, formatRaceTime(raceState.lastLapMs));
     setText(raceBestLap, formatRaceTime(raceState.bestLapMs));
     setText(raceTotalTime, formatRaceTime(getDisplayedRaceTime(raceState.totalTimeMs)));
+    renderRaceStartSignal();
     if (racePosition) {
       racePosition.replaceChildren(document.createTextNode(position));
       const total = document.createElement('em');
@@ -1014,6 +1097,7 @@
     return {
       reset: isNewRun,
       phase: displayRacePhase(state.phase),
+      phaseCode: normalizeRacePhaseCode(state.phase),
       lap,
       lapCount: normalizeRaceNumber(state.raceInfo?.totalLaps),
       position: normalizeRaceNumber(standing?.position) || null,
@@ -1022,6 +1106,8 @@
       currentLapMs: normalizeRaceNumber(standing?.currentLapMs),
       lastLapMs,
       bestLapMs: normalizeRaceNumber(standing?.bestLapMs),
+      startAtMs: normalizeRaceNumber(state.startAtMs),
+      serverTimeMs: normalizeRaceNumber(state.serverTimeMs),
       clockRunning: state.phase === 'green' && standing?.status === 'racing',
       laps,
     };
@@ -1031,12 +1117,15 @@
     if (!nextState || typeof nextState !== 'object') {
       return false;
     }
+    updateRaceClockOffset(nextState);
     const v2State = adaptRaceStateV2(nextState);
     if (v2State !== null) {
       nextState = v2State;
     }
+    const previousPhaseCode = raceState.phaseCode;
     if (nextState.reset === true) {
       raceState.phase = 'STANDBY';
+      raceState.phaseCode = 'idle';
       raceState.lap = null;
       raceState.lapCount = null;
       raceState.position = null;
@@ -1045,20 +1134,32 @@
       raceState.currentLapMs = null;
       raceState.lastLapMs = null;
       raceState.bestLapMs = null;
+      raceState.startAtMs = null;
+      raceState.serverTimeMs = null;
       raceState.laps = [];
       raceState.clockRunning = false;
+      raceStartSignalGreenUntil = 0;
     }
     if (typeof nextState.phase === 'string' && nextState.phase.trim()) {
       raceState.phase = nextState.phase.trim().toUpperCase().slice(0, 24);
+      raceState.phaseCode = normalizeRacePhaseCode(nextState.phase);
+    }
+    if (typeof nextState.phaseCode === 'string' && nextState.phaseCode.trim()) {
+      raceState.phaseCode = normalizeRacePhaseCode(nextState.phaseCode);
     }
     raceState.clockRunning = Object.prototype.hasOwnProperty.call(nextState, 'clockRunning')
       ? nextState.clockRunning === true
       : raceState.phase === 'RUNNING';
     for (const field of ['lap', 'lapCount', 'position', 'fieldSize', 'totalTimeMs',
-      'currentLapMs', 'lastLapMs', 'bestLapMs']) {
+      'currentLapMs', 'lastLapMs', 'bestLapMs', 'startAtMs', 'serverTimeMs']) {
       if (Object.prototype.hasOwnProperty.call(nextState, field)) {
         raceState[field] = nextState[field] === null ? null : normalizeRaceNumber(nextState[field]);
       }
+    }
+    if (previousPhaseCode !== 'green' && raceState.phaseCode === 'green') {
+      raceStartSignalGreenUntil = performance.now() + Math.max(0, RACE_START_SIGNAL_GREEN_MS);
+    } else if (raceState.phaseCode !== 'green') {
+      raceStartSignalGreenUntil = 0;
     }
     if (Object.prototype.hasOwnProperty.call(nextState, 'laps')) {
       const laps = normalizeRaceLaps(nextState.laps);
@@ -3855,7 +3956,11 @@
   window.addEventListener('momo-race-state', (event) => setRaceState(event.detail));
   renderRaceHud();
   window.setInterval(() => {
-    if (raceState.phase === 'RUNNING') {
+    if (
+      raceState.clockRunning
+      || raceState.phaseCode === 'countdown'
+      || raceState.phaseCode === 'green'
+    ) {
       renderRaceHud();
     }
   }, 100);

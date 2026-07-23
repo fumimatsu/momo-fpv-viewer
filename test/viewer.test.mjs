@@ -12,7 +12,7 @@ function readProjectFile(path) {
 }
 
 test('viewer JavaScript files parse', () => {
-  for (const file of ['viewer.js', 'telemetry.js', 'gamepad-profile.js', 'ffb-bridge.js', 'gamepad.js', 'monitor.js']) {
+  for (const file of ['viewer.js', 'telemetry.js', 'gamepad-profile.js', 'ffb-bridge.js', 'gamepad.js', 'monitor.js', 'variants/relay/pilot.js']) {
     execFileSync(process.execPath, ['--check', join(rootDir, file)], {
       stdio: 'pipe',
     });
@@ -24,6 +24,7 @@ test('Race HUD markup is present in viewer.html', () => {
   for (const id of [
     'raceBanner',
     'raceBannerTitle',
+    'raceStartSignal',
     'raceBannerMain',
     'raceBannerSub',
     'racePhaseState',
@@ -37,6 +38,29 @@ test('Race HUD markup is present in viewer.html', () => {
     assert.match(html, new RegExp(`id="${id}"`));
   }
   assert.match(html, /class="debug-only race-only"/);
+});
+
+test('Race start signal is available in Direct and Relay viewers', () => {
+  const html = readProjectFile('viewer.html');
+  const js = readProjectFile('viewer.js');
+  const relayHtml = readProjectFile('variants/relay/pilot.html');
+  const relayJs = readProjectFile('variants/relay/pilot.js');
+  for (const content of [html, relayHtml]) {
+    assert.match(content, /id="raceStartSignal"/);
+    assert.match(content, /data-race-signal-light="1"/);
+    assert.match(content, /data-race-signal-light="5"/);
+    assert.match(content, /race-start-signal\[data-mode="green"\]/);
+    assert.match(content, /race-start-signal-hidden/);
+  }
+  for (const content of [js, relayJs]) {
+    assert.match(content, /const RACE_START_SIGNAL_LIGHT_COUNT = 5/);
+    assert.match(content, /function getRaceStartSignalState\(/);
+    assert.match(content, /function updateRaceClockOffset\(/);
+    assert.match(content, /serverTimeMs/);
+    assert.match(content, /startAtMs/);
+    assert.match(content, /raceStartSignalLights\.forEach/);
+    assert.match(content, /RACE_START_SIGNAL_LIGHT_COUNT - Math\.max\(1, remaining\) \+ 1/);
+  }
 });
 
 test('Race HUD displays raceInfo title and total laps', () => {
@@ -133,7 +157,8 @@ test('Race countdown and start sound cues are available', () => {
   assert.match(js, /const RACE_SOUND_ENABLED = getBooleanParam\('raceSound', RACE_MODE\)/);
   assert.match(js, /const RACE_SOUND_VOLUME = Math\.max\(0, Math\.min\(1/);
   assert.match(js, /if \(Number\.isFinite\(state\.startAtMs\)\) \{/);
-  assert.match(js, /if \(remaining > 0\) \{\s*return String\(remaining\);\s*\}\s*return '';/);
+  assert.match(js, /function getRaceCountdownSeconds\(state\)/);
+  assert.match(js, /if \(Number\.isFinite\(remaining\) && remaining > 0\) \{\s*return String\(remaining\);\s*\}\s*return '';/);
   assert.match(js, /function playRaceCountdownSound\(\)/);
   assert.match(js, /function playRaceStartSound\(\)/);
   assert.match(js, /playRaceSoundForState\(payload\)/);

@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VIEWER_BUILD_ID = '20260723-ffb-bridge-gui';
+  const VIEWER_BUILD_ID = '20260723-race-start-signal';
   const DEFAULT_HOST = '192.168.11.3:8080';
   const RECONNECT_BASE_DELAY_MS = 500;
   const RECONNECT_MAX_DELAY_MS = 5000;
@@ -106,6 +106,7 @@
   const RACE_RECONNECT_BASE_MS = getNumberParam('raceReconnectMs', 1000);
   const RACE_RECONNECT_MAX_MS = getNumberParam('raceReconnectMaxMs', 10000);
   const RACE_BANNER_TRANSIENT_MS = getNumberParam('raceBannerMs', 4000);
+  const RACE_START_SIGNAL_LIGHT_COUNT = 5;
   const RACE_SOUND_ENABLED = getBooleanParam('raceSound', RACE_MODE);
   const RACE_SOUND_VOLUME = Math.max(0, Math.min(1, getNumberParamAllowZero('raceSoundVolume', 0.35)));
   const TELEMETRY_MOCK_ENABLED = getBooleanParam('telemetryMock', false);
@@ -163,6 +164,8 @@
   const deviceState = document.getElementById('deviceState');
   const raceBanner = document.getElementById('raceBanner');
   const raceBannerTitle = document.getElementById('raceBannerTitle');
+  const raceStartSignal = document.getElementById('raceStartSignal');
+  const raceStartSignalLights = Array.from(document.querySelectorAll('[data-race-signal-light]'));
   const raceBannerMain = document.getElementById('raceBannerMain');
   const raceBannerSub = document.getElementById('raceBannerSub');
   const racePhaseState = document.getElementById('racePhaseState');
@@ -329,6 +332,7 @@
   let raceSoundUnlocked = false;
   let lastRaceSoundKey = '';
   let raceCountdownTimer = null;
+  let raceServerClockOffsetMs = 0;
   const gamepadPedalIdle = {
     throttle: GAMEPAD_THROTTLE_IDLE,
     brake: GAMEPAD_BRAKE_IDLE,
@@ -1335,21 +1339,82 @@
     return `${seconds}.${millis}`;
   }
 
+  function updateRaceClockOffset(state) {
+    if (Number.isFinite(state?.serverTimeMs)) {
+      raceServerClockOffsetMs = Number(state.serverTimeMs) - Date.now();
+    }
+  }
+
+  function getRaceDisplayNowMs() {
+    return Date.now() + raceServerClockOffsetMs;
+  }
+
+  function getRaceCountdownSeconds(state) {
+    if (!state) {
+      return null;
+    }
+    if (Number.isFinite(state.startAtMs)) {
+      return Math.ceil((Number(state.startAtMs) - getRaceDisplayNowMs()) / 1000);
+    }
+    if (Number.isFinite(state.countdown)) {
+      return Math.ceil(Number(state.countdown));
+    }
+    return null;
+  }
+
   function getRaceCountdownText(state) {
     if (!state) {
       return '';
     }
-    if (Number.isFinite(state.startAtMs)) {
-      const remaining = Math.ceil((Number(state.startAtMs) - Date.now()) / 1000);
-      if (remaining > 0) {
-        return String(remaining);
-      }
-      return '';
-    }
-    if (Number.isFinite(state.countdown) && Number(state.countdown) > 0) {
-      return String(Math.ceil(Number(state.countdown)));
+    const remaining = getRaceCountdownSeconds(state);
+    if (Number.isFinite(remaining) && remaining > 0) {
+      return String(remaining);
     }
     return '';
+  }
+
+  function getRaceStartSignalState(state = raceState) {
+    if (!RACE_MODE || !state) {
+      return { visible: false, mode: 'off', litCount: 0 };
+    }
+    if (state.phase === 'green') {
+      return { visible: true, mode: 'green', litCount: RACE_START_SIGNAL_LIGHT_COUNT };
+    }
+    if (state.phase === 'ready') {
+      return { visible: true, mode: 'ready', litCount: 0 };
+    }
+    if (state.phase === 'countdown') {
+      const remaining = getRaceCountdownSeconds(state);
+      if (!Number.isFinite(remaining)) {
+        return { visible: true, mode: 'red', litCount: 0 };
+      }
+      if (remaining <= 0) {
+        return { visible: true, mode: 'red', litCount: RACE_START_SIGNAL_LIGHT_COUNT };
+      }
+      const litCount = remaining > RACE_START_SIGNAL_LIGHT_COUNT
+        ? 0
+        : RACE_START_SIGNAL_LIGHT_COUNT - Math.max(1, remaining) + 1;
+      return {
+        visible: true,
+        mode: 'red',
+        litCount: Math.max(0, Math.min(RACE_START_SIGNAL_LIGHT_COUNT, litCount)),
+      };
+    }
+    return { visible: false, mode: 'off', litCount: 0 };
+  }
+
+  function updateRaceStartSignal() {
+    if (!raceStartSignal) {
+      return;
+    }
+    const signal = getRaceStartSignalState();
+    raceStartSignal.dataset.mode = signal.mode;
+    raceStartSignal.dataset.lit = String(signal.litCount);
+    raceStartSignal.classList.toggle('race-start-signal-hidden', !signal.visible);
+    raceBanner?.classList.toggle('has-start-signal', signal.visible);
+    raceStartSignalLights.forEach((light, index) => {
+      light.classList.toggle('is-lit', index < signal.litCount);
+    });
   }
 
   function getRaceBannerMain(state = raceState) {
@@ -1472,7 +1537,7 @@
     if (!state || !Number.isFinite(state.startAtMs)) {
       return;
     }
-    const remainingMs = Number(state.startAtMs) - Date.now();
+    const remainingMs = Number(state.startAtMs) - getRaceDisplayNowMs();
     if (remainingMs <= 0) {
       return;
     }
@@ -1620,6 +1685,7 @@
       setText(racePositionState, 'n/a');
       setText(raceLapState, 'n/a');
       setText(raceBannerTitle, '');
+      updateRaceStartSignal();
       return;
     }
     const self = getRaceSelf();
@@ -1633,6 +1699,7 @@
     setText(raceBannerTitle, raceName === 'n/a' ? '' : raceName);
     setText(raceBannerMain, getRaceBannerMain());
     setText(raceBannerSub, getRaceBannerSub());
+    updateRaceStartSignal();
     if (raceBanner) {
       raceBanner.dataset.phase = raceState?.phase || 'waiting';
       raceBanner.dataset.flag = raceState?.flag || 'none';
@@ -1680,6 +1747,7 @@
     raceBannerVisibleUntil = 0;
     lastRaceBannerEventKey = '';
     lastRaceSoundKey = '';
+    raceServerClockOffsetMs = 0;
     clearRaceBannerHideTimer();
     clearRaceCountdownTimer();
     recordEvent('race closed', 'manual');
@@ -1690,6 +1758,7 @@
     if (!payload || payload.type !== 'race_state') {
       return;
     }
+    updateRaceClockOffset(payload);
     raceState = payload;
     lastRaceMessageAt = performance.now();
     markRaceBannerEvent(payload);
