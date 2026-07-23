@@ -9,6 +9,9 @@
   const VIDEO_FREEZE_TIMEOUT_MS = getNumberParam('videoFreezeMs', 12000);
   const CONNECT_GRACE_MS = getNumberParam('connectGraceMs', 15000);
   const SIGNALING_MODE = getStringParam(['signaling', 'signalingMode'], 'relay').toLowerCase();
+  // signaling=ayame でも Relay が相手なら、Pi 直結用 serial ではなく Relay の
+  // command / telemetry / race 契約を使う。外部 Pilot URL は relayTransport=1 を指定する。
+  const RELAY_TRANSPORT = SIGNALING_MODE === 'relay' || getBooleanParam('relayTransport', false);
   const AUTO_RECONNECT = getBooleanParam('autoReconnect', true);
   const AUTO_RECONNECT_ON_VIDEO_LOST = getBooleanParam('videoReconnect', SIGNALING_MODE === 'ayame');
   const RACE_CAR_ID = getStringParam(['carId', 'raceCarId'], '');
@@ -550,6 +553,10 @@
 
   function isRelaySignaling() {
     return SIGNALING_MODE === 'relay';
+  }
+
+  function usesRelayTransport() {
+    return RELAY_TRANSPORT;
   }
 
   function getRelayDevice() {
@@ -3094,7 +3101,7 @@
         scheduleReconnect('dc closed');
         updateUiState();
       };
-      dataChannel.onmessage = isRelaySignaling()
+      dataChannel.onmessage = usesRelayTransport()
         ? () => {}
         : (event) => handleDataChannelMessage(event.data);
       if (dataChannel.readyState === 'open') {
@@ -3154,11 +3161,11 @@
       }
     };
 
-    attachDataChannel(peer.createDataChannel(isRelaySignaling() ? 'momo-command' : 'serial', {
+    attachDataChannel(peer.createDataChannel(usesRelayTransport() ? 'momo-command' : 'serial', {
       ordered: false,
       maxRetransmits: 0,
     }));
-    if (isRelaySignaling()) {
+    if (usesRelayTransport()) {
       attachTelemetryChannel(peer.createDataChannel('momo-telemetry', {
         ordered: false,
         maxRetransmits: 0,
@@ -3204,7 +3211,7 @@
 
     const videoTransceiver = peer.addTransceiver('video', { direction: 'recvonly' });
     preferVideoCodec(videoTransceiver, getPreferredVideoCodec());
-    if (!isRelaySignaling()) {
+    if (!usesRelayTransport()) {
       const audioTransceiver = peer.addTransceiver('audio', { direction: 'sendrecv' });
       audioSender = audioTransceiver.sender;
       attachMicTrackToSender().catch((error) => {
@@ -3964,7 +3971,7 @@
       renderRaceHud();
     }
   }, 100);
-  if (isRelaySignaling()) {
+  if (usesRelayTransport()) {
     document.body.classList.add('relay-mode');
     const device = getRelayDevice();
     if (device) {
