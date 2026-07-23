@@ -4016,13 +4016,20 @@
 
   function openInputSetup() {
     setDriveEnabled(false);
-    const url = new URL('gamepad.html', location.href);
+    // Relay 配布版は pilot.html と gamepad.html が同じ階層、GitHub Pages 正本は
+    // variants/relay/pilot.html からリポジトリ直下の gamepad.html を参照する。
+    const inputSetupPath = /\/variants\/relay\/pilot\.html$/i.test(location.pathname)
+      ? '../../gamepad.html'
+      : 'gamepad.html';
+    const url = new URL(inputSetupPath, location.href);
     const device = getRelayDevice();
     if (device) {
       url.searchParams.set('device', device);
     }
     url.searchParams.set('viewer', 'relay-pilot');
     url.searchParams.set('relayPilotPath', 'flat');
+    // Ayame 接続など、現在の Pilot URL の接続パラメータを設定画面から戻す時にも維持する。
+    url.searchParams.set('returnUrl', location.href);
     window.open(url.toString(), '_blank', 'noopener');
   }
 

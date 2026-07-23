@@ -381,9 +381,17 @@ test('Gamepad mappings are stored and selected per VID and PID profile', () => {
   const gamepadJs = readProjectFile('gamepad.js');
   const viewerHtml = readProjectFile('viewer.html');
   const viewerJs = readProjectFile('viewer.js');
+  const relayJs = readProjectFile('variants/relay/pilot.js');
   assert.ok(gamepadHtml.indexOf('gamepad-profile.js') < gamepadHtml.indexOf('gamepad.js'));
   assert.ok(viewerHtml.indexOf('gamepad-profile.js') < viewerHtml.indexOf('viewer.js'));
+  assert.match(relayJs, /inputSetupPath = \/\\\/variants\\\/relay\\\/pilot\\\.html\$\/i\.test\(location\.pathname\)/);
+  assert.match(relayJs, /\? '\.\.\/\.\.\/gamepad\.html'/);
+  assert.match(relayJs, /url\.searchParams\.set\('returnUrl', location\.href\)/);
   assert.match(gamepadJs, /\? "\.\/pilot\.html"/);
+  assert.match(gamepadJs, /const returnViewerUrl = getReturnViewerUrl\(\);/);
+  assert.match(gamepadJs, /returnViewerUrl \|\| \(relayPilotTarget \? relayPilotPath/);
+  assert.match(gamepadJs, /url\.origin !== location\.origin/);
+  assert.match(gamepadJs, /variants\\\/relay/);
   assert.match(gamepadJs, /profileApi\.saveProfile\(/);
   assert.match(gamepadJs, /data-select-gamepad/);
   assert.match(gamepadJs, /params\.set\("gamepadProfile", selectedProfileKey\)/);
