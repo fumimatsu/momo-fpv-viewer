@@ -2268,8 +2268,12 @@
     const ageMs = Math.round(stream.stateAgeMs);
     const state = stream.stale ? 'STALE' : 'ok';
     const gap = snapshot.counters.missing > 0 ? ` gap${snapshot.counters.missing}` : '';
-    const lateral = stream.state.imu.a[1].toFixed(2);
-    return `v1 ${stream.src} ${state} q${stream.state.seq} ${ageMs}ms${gap} ay${lateral}`;
+    const acceleration = stream.state.imu.a.map((value) => value.toFixed(1)).join('/');
+    const angularVelocity = stream.state.imu.g.map((value) => value.toFixed(2)).join('/');
+    const flags = stream.state.qual.flags.length > 0
+      ? ` ${stream.state.qual.flags.join(',')}`
+      : '';
+    return `v1 ${stream.src} ${state} q${stream.state.seq} ${ageMs}ms${gap} a:${acceleration}m/s2 g:${angularVelocity}rad/s${flags}`;
   }
 
   function getDcRttStatus() {
