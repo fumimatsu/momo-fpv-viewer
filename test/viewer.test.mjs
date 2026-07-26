@@ -62,9 +62,9 @@ test('Race start signal is available in Direct and Relay viewers', () => {
     assert.match(content, /race-start-signal-hidden/);
   }
   assert.match(html, /top: calc\((?:36|34)vh \+ env\(safe-area-inset-top\)\)/);
-  assert.match(relayHtml, /\.race-total \.race-start-signal \{/);
+  assert.match(relayHtml, /\.race-total-anchor \.race-start-signal \{/);
   assert.match(relayHtml, /position: absolute;/);
-  assert.match(relayHtml, /<div class="race-total race-card">[\s\S]*id="raceStartSignal"/);
+  assert.match(relayHtml, /<div class="race-total-anchor">[\s\S]*<div class="race-total race-card">[\s\S]*<\/div>\s*<div id="raceStartSignal"/);
   for (const content of [js, relayJs]) {
     assert.match(content, /const RACE_START_SIGNAL_LIGHT_COUNT = 5/);
     assert.match(content, /const RACE_START_SIGNAL_GREEN_MS = Math\.max\(0, getNumberParam\('raceSignalMs', 1500\)\)/);
