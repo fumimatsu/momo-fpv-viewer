@@ -170,6 +170,7 @@
   const raceBestLap = document.getElementById('raceBestLap');
   const raceTotalTime = document.getElementById('raceTotalTime');
   const racePosition = document.getElementById('racePosition');
+  const racePositionCard = racePosition?.closest('.race-position');
   const raceBattle = document.getElementById('raceBattle');
   const raceBattleState = document.getElementById('raceBattleState');
   const raceBattleAhead = document.getElementById('raceBattleAhead');
@@ -329,6 +330,7 @@
   let activeRaceRunId = '';
   let raceServerClockOffsetMs = 0;
   let raceStartSignalGreenUntil = 0;
+  let raceBattleLayoutFrame = null;
   let lastRaceLapAnnouncementKey = '';
   const receivedRaceLapHistory = new Map();
   const raceState = {
@@ -387,6 +389,20 @@
         '--drive-hud-bottom',
         `${Math.round(20 + scaledOverflow)}px`,
       );
+      scheduleRaceBattleLayout();
+    });
+  }
+
+  function scheduleRaceBattleLayout() {
+    if (!racePositionCard || !raceBattle || raceBattleLayoutFrame !== null) {
+      return;
+    }
+    raceBattleLayoutFrame = window.requestAnimationFrame(() => {
+      raceBattleLayoutFrame = null;
+      const bottom = racePositionCard.getBoundingClientRect().bottom;
+      if (Number.isFinite(bottom) && bottom > 0) {
+        document.documentElement.style.setProperty('--race-battle-top', `${Math.ceil(bottom + 14)}px`);
+      }
     });
   }
 
@@ -1204,6 +1220,7 @@
       const total = document.createElement('em');
       total.textContent = `/${fieldSize}`;
       racePosition.append(total);
+      scheduleRaceBattleLayout();
     }
     renderRaceBattle();
     if (!raceLapHistory) {

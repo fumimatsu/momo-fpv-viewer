@@ -60,8 +60,11 @@ test('Race start signal is available in Direct and Relay viewers', () => {
     assert.match(content, /data-race-signal-light="5"/);
     assert.match(content, /race-start-signal\[data-mode="green"\]/);
     assert.match(content, /race-start-signal-hidden/);
-    assert.match(content, /top: calc\((?:36|34)vh \+ env\(safe-area-inset-top\)\)/);
   }
+  assert.match(html, /top: calc\((?:36|34)vh \+ env\(safe-area-inset-top\)\)/);
+  assert.match(relayHtml, /\.race-total \.race-start-signal \{/);
+  assert.match(relayHtml, /position: absolute;/);
+  assert.match(relayHtml, /<div class="race-total race-card">[\s\S]*id="raceStartSignal"/);
   for (const content of [js, relayJs]) {
     assert.match(content, /const RACE_START_SIGNAL_LIGHT_COUNT = 5/);
     assert.match(content, /const RACE_START_SIGNAL_GREEN_MS = Math\.max\(0, getNumberParam\('raceSignalMs', 1500\)\)/);
@@ -176,7 +179,7 @@ test('Relay Pilot exposes a compact transparent battle meter below the position 
   assert.match(relayHtml, /id="raceBattleAhead"/);
   assert.match(relayHtml, /id="raceBattleBehind"/);
   assert.match(relayHtml, /\.race-battle \{/);
-  assert.match(relayHtml, /top: calc\(142px \+ env\(safe-area-inset-top\)\);/);
+  assert.match(relayHtml, /top: var\(--race-battle-top, calc\(142px \+ env\(safe-area-inset-top\)\)\);/);
   assert.match(relayHtml, /right: calc\(16px \+ env\(safe-area-inset-right\)\);/);
   assert.match(relayHtml, /width: min\(150px, calc\(100vw - 32px\)\);/);
   assert.match(relayHtml, /border: 0;/);
@@ -188,6 +191,8 @@ test('Relay Pilot exposes a compact transparent battle meter below the position 
   assert.match(relayHtml, /\.race-battle-name \{[\s\S]*?grid-column: 2;/);
   assert.match(relayHtml, /\.race-battle-car \{[\s\S]*?width: 34px;/);
   assert.match(relayHtml, /--race-car: rgba\(118, 224, 244, 0\.48\);/);
+  assert.match(relayHtml, /font-size: clamp\(68px, 8vw, 112px\)/);
+  assert.match(relayJs, /function scheduleRaceBattleLayout\(/);
   assert.doesNotMatch(relayHtml, /\.race-battle-rival\.ahead \.race-battle-car/);
   assert.doesNotMatch(relayHtml, /\.race-battle-rival\.behind \.race-battle-car/);
   assert.match(relayJs, /const RACE_BATTLE_ENABLED = getBooleanParam\('raceBattle', true\)/);
