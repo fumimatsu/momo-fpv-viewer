@@ -19,6 +19,15 @@ test('viewer JavaScript files parse', () => {
   }
 });
 
+test('Relay Pilot sends Drive state on a reliable dedicated channel', () => {
+  const relayJs = readProjectFile('variants/relay/pilot.js');
+  assert.match(relayJs, /let driveChannel = null/);
+  assert.match(relayJs, /function sendDriveState\(\)/);
+  assert.match(relayJs, /driveChannel\.send\(rcDriveEnabled \? 'DRIVE:1' : 'DRIVE:0'\)/);
+  assert.match(relayJs, /peer\.createDataChannel\('momo-drive', \{\s*ordered: true,/);
+  assert.match(relayJs, /sendDriveState\(\);\s*\n\s*if \(enabled\)/);
+});
+
 test('Race HUD markup is present in viewer.html', () => {
   const html = readProjectFile('viewer.html');
   for (const id of [
