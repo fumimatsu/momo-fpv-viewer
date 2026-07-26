@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VIEWER_BUILD_ID = '20260723-race-browser-announce';
+  const VIEWER_BUILD_ID = '20260726-m5-audio';
   const DEFAULT_HOST = '192.168.11.3:8080';
   const RECONNECT_BASE_DELAY_MS = 500;
   const RECONNECT_MAX_DELAY_MS = 5000;
@@ -110,6 +110,7 @@
   const RACE_RECONNECT_MAX_MS = getNumberParam('raceReconnectMaxMs', 10000);
   const RACE_BANNER_TRANSIENT_MS = getNumberParam('raceBannerMs', 4000);
   const RACE_START_SIGNAL_LIGHT_COUNT = 5;
+  const RACE_START_SIGNAL_GREEN_MS = Math.max(0, getNumberParam('raceSignalMs', 1500));
   const RACE_SIGNAL_DEMO_READY_MS = getNumberParam('raceSignalDemoReadyMs', 1200);
   const RACE_SIGNAL_DEMO_GREEN_MS = getNumberParam('raceSignalDemoGreenMs', 1800);
   const RACE_SOUND_ENABLED = getBooleanParam('raceSound', RACE_MODE);
@@ -176,6 +177,7 @@
   const videoAgeState = document.getElementById('videoAgeState');
   const rcState = document.getElementById('rcState');
   const telemetryState = document.getElementById('telemetryState');
+  const m5AudioState = document.getElementById('m5AudioState');
   const modeState = document.getElementById('modeState');
   const deviceState = document.getElementById('deviceState');
   const raceBanner = document.getElementById('raceBanner');
@@ -199,6 +201,7 @@
   const btnRaceConnect = document.getElementById('btnRaceConnect');
   const btnAudio = document.getElementById('btnAudio');
   const btnAudioFilter = document.getElementById('btnAudioFilter');
+  const btnM5Audio = document.getElementById('btnM5Audio');
   const btnMic = document.getElementById('btnMic');
   const btnMicTone = document.getElementById('btnMicTone');
   const micVolumeInput = document.getElementById('micVolume');
@@ -287,6 +290,7 @@
   let rcBrakeTimer = null;
   let lastRcCommand = 'S:1500,T:1500';
   let lastTelemetry = 'n/a';
+  let m5AudioPlayer = null;
   const telemetryTracker = window.FpvTelemetry?.TelemetryTracker
     ? new window.FpvTelemetry.TelemetryTracker()
     : null;
@@ -350,6 +354,8 @@
   let lastRaceLapAnnouncementKey = '';
   let raceCountdownTimer = null;
   let raceServerClockOffsetMs = 0;
+  let raceStartSignalGreenUntil = 0;
+  let raceStartSignalHideTimer = null;
   let raceSignalDemoTimer = null;
   const gamepadPedalIdle = {
     throttle: GAMEPAD_THROTTLE_IDLE,
@@ -574,7 +580,9 @@
     document.body.classList.toggle('media-controls-hidden', hidden);
     setElementHidden(btnAudio?.closest('.media-control') || btnAudio, hidden);
     setElementHidden(btnAudioFilter, hidden);
+    setElementHidden(btnM5Audio, hidden);
     setElementHidden(micTxState?.closest('.debug-only'), hidden);
+    setElementHidden(m5AudioState?.closest('.debug-only'), hidden);
   }
 
   function getStringParam(names, defaultValue = '') {
@@ -1396,7 +1404,11 @@
       return { visible: false, mode: 'off', litCount: 0 };
     }
     if (state.phase === 'green') {
-      return { visible: true, mode: 'green', litCount: RACE_START_SIGNAL_LIGHT_COUNT };
+      return {
+        visible: raceStartSignalGreenUntil > performance.now(),
+        mode: 'green',
+        litCount: RACE_START_SIGNAL_LIGHT_COUNT,
+      };
     }
     if (state.phase === 'ready') {
       return { visible: true, mode: 'ready', litCount: 0 };
@@ -1881,8 +1893,10 @@
     lastRaceSoundKey = '';
     lastRaceLapAnnouncementKey = '';
     raceServerClockOffsetMs = 0;
+    raceStartSignalGreenUntil = 0;
     stopRaceAnnouncement();
     clearRaceSignalDemoTimer();
+    clearRaceStartSignalHideTimer();
     clearRaceBannerHideTimer();
     clearRaceCountdownTimer();
     recordEvent('race closed', 'manual');
@@ -1895,6 +1909,23 @@
     }
     window.clearTimeout(raceSignalDemoTimer);
     raceSignalDemoTimer = null;
+  }
+
+  function clearRaceStartSignalHideTimer() {
+    if (!raceStartSignalHideTimer) {
+      return;
+    }
+    window.clearTimeout(raceStartSignalHideTimer);
+    raceStartSignalHideTimer = null;
+  }
+
+  function scheduleRaceStartSignalHide() {
+    clearRaceStartSignalHideTimer();
+    const delayMs = Math.max(0, raceStartSignalGreenUntil - performance.now());
+    raceStartSignalHideTimer = window.setTimeout(() => {
+      raceStartSignalHideTimer = null;
+      updateRaceUi();
+    }, delayMs);
   }
 
   function emitRaceSignalDemoState(phase, startAtMs = null, message = '', selfPatch = {}) {
@@ -1961,6 +1992,13 @@
     const previousRaceState = raceState;
     updateRaceClockOffset(payload);
     raceState = payload;
+    if (previousRaceState?.phase !== 'green' && payload.phase === 'green') {
+      raceStartSignalGreenUntil = performance.now() + RACE_START_SIGNAL_GREEN_MS;
+      scheduleRaceStartSignalHide();
+    } else if (payload.phase !== 'green') {
+      raceStartSignalGreenUntil = 0;
+      clearRaceStartSignalHideTimer();
+    }
     lastRaceMessageAt = performance.now();
     markRaceBannerEvent(payload);
     playRaceSoundForState(payload);
@@ -2086,6 +2124,16 @@
 
   function updateTelemetryUi() {
     setText(telemetryState, getTelemetryStatus());
+  }
+
+  function updateM5AudioUi(snapshot = null, status = null) {
+    const player = m5AudioPlayer;
+    const enabled = snapshot?.enabled ?? player?.snapshot().enabled ?? false;
+    if (btnM5Audio) {
+      btnM5Audio.textContent = enabled ? 'M5 Audio On' : 'M5 Audio';
+      btnM5Audio.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+    }
+    setText(m5AudioState, status || player?.getStatus() || 'unavailable');
   }
 
   function updateUiState() {
@@ -2727,6 +2775,9 @@
     }
     if (typeof message === 'string' && message.startsWith('TEL:')) {
       applyTelemetry(message, 'datachannel');
+      return;
+    }
+    if (m5AudioPlayer?.handle(message)) {
       return;
     }
     console.log('DataChannel RX:', message);
@@ -4070,6 +4121,7 @@
         dataChannel.onmessage = null;
       }
       dataChannel = channel;
+      dataChannel.binaryType = 'arraybuffer';
       dataChannel.onopen = () => {
         connectedAt = performance.now();
         pendingDcPings.clear();
@@ -4769,6 +4821,16 @@
   btnMirror.addEventListener('click', toggleVideoMirror);
   btnSwapControls.addEventListener('click', toggleControlsSwapped);
   btnRaceConnect?.addEventListener('click', toggleRaceControlConnection);
+  btnM5Audio?.addEventListener('click', async () => {
+    if (!m5AudioPlayer) {
+      return;
+    }
+    const enabled = await m5AudioPlayer.setEnabled(!m5AudioPlayer.snapshot().enabled);
+    if (!enabled) {
+      recordEvent('m5 audio unavailable');
+    }
+    updateM5AudioUi();
+  });
   applyMediaControlsVisibility();
   if (MEDIA_CONTROLS_VISIBLE) {
     btnAudio.addEventListener('click', toggleAudio);
@@ -4928,6 +4990,8 @@
   setControlsSwapped(isControlsSwappedByDefault());
   setAudioEnabled(false);
   setAudioFilterEnabled(AUDIO_FILTER_DEFAULT);
+  m5AudioPlayer = window.MomoM5Audio?.createPlayer({ onState: updateM5AudioUi }) || null;
+  updateM5AudioUi();
   setDebugOsd(isDebugEnabledByDefault());
   updateRaceUi();
   document.addEventListener('visibilitychange', () => {

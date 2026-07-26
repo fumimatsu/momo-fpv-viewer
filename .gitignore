@@ -3,3 +3,5 @@ coverage/
 tools/ffb-bridge/**/bin/
 tools/ffb-bridge/**/obj/
 tools/ffb-bridge/artifacts/
+tools/ffb-bridge/*.stdout.log
+tools/ffb-bridge/*.stderr.log

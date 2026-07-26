@@ -28,6 +28,8 @@ constant magnitude 出力を明示し、デバイス名や VID/PID の自動判�
 - ドライバ診断時は、`-Backend directinput` と `-Backend moza-directinput` で
   符号方式を明示指定できる。
 
+MOZA R3 の初期調整値と、車両物理テレメトリが来るまで導入しない FFB 要素は [MOZA R3 FFB 参照値](MOZA-R3-REFERENCE.md) に固定する。
+
 Viewer が Bridge へ接続した後、ブラウザコンソールで
 `window.fpvViewer.getDiagnostics().ffb.bridge.devices` を実行すると、認識したデバイス情報を確認できる。
 

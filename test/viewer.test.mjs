@@ -60,9 +60,11 @@ test('Race start signal is available in Direct and Relay viewers', () => {
     assert.match(content, /data-race-signal-light="5"/);
     assert.match(content, /race-start-signal\[data-mode="green"\]/);
     assert.match(content, /race-start-signal-hidden/);
+    assert.match(content, /top: calc\((?:36|34)vh \+ env\(safe-area-inset-top\)\)/);
   }
   for (const content of [js, relayJs]) {
     assert.match(content, /const RACE_START_SIGNAL_LIGHT_COUNT = 5/);
+    assert.match(content, /const RACE_START_SIGNAL_GREEN_MS = Math\.max\(0, getNumberParam\('raceSignalMs', 1500\)\)/);
     assert.match(content, /function getRaceStartSignalState\(/);
     assert.match(content, /function updateRaceClockOffset\(/);
     assert.match(content, /serverTimeMs/);
@@ -256,6 +258,8 @@ test('Audio and microphone controls can be fully hidden', () => {
   assert.match(html, /body\.media-controls-hidden \.top-primary/);
   assert.match(html, /class="media-control"/);
   assert.match(html, /id="btnMic"/);
+  assert.match(html, /id="btnM5Audio"/);
+  assert.match(js, /setElementHidden\(btnM5Audio, hidden\)/);
 });
 
 test('RC control positions can be swapped from URL and UI', () => {
