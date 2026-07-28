@@ -5,6 +5,7 @@ import test from 'node:test';
 const require = createRequire(import.meta.url);
 const {
   MAX_WIRE_BYTES,
+  deriveVehicleMotion,
   TelemetryMockGenerator,
   TelemetryTracker,
   encodeTelemetry,
@@ -26,6 +27,20 @@ function statePayload(overrides = {}) {
   };
 }
 
+function compactStatePayload(overrides = {}) {
+  return {
+    v: 2,
+    k: 's',
+    src: 'imu0',
+    boot: '7f3a21c4',
+    seq: 10,
+    t_us: 1000000,
+    m: { a: [2.4, -3.6, 0.2], y: -0.44 },
+    q: { p: 50000, f: ['flu_axes'] },
+    ...overrides,
+  };
+}
+
 test('v1 state parses while legacy, unknown version, and malformed input stay separate', () => {
   const valid = parseTelemetryMessage(encodeTelemetry(statePayload()));
   assert.equal(valid.status, 'valid');
@@ -34,9 +49,23 @@ test('v1 state parses while legacy, unknown version, and malformed input stay se
   assert.equal(parseTelemetryMessage('TEL:alive temp=45C').status, 'legacy');
   assert.equal(parseTelemetryMessage('TEL:{bad json').status, 'invalid');
   assert.equal(
-    parseTelemetryMessage(encodeTelemetry(statePayload({ v: 2 }))).status,
+    parseTelemetryMessage(encodeTelemetry(statePayload({ v: 3 }))).status,
     'unknown_version',
   );
+});
+
+test('v2 compact state provides the confirmed FLU motion values', () => {
+  const parsed = parseTelemetryMessage(encodeTelemetry(compactStatePayload()));
+  assert.equal(parsed.status, 'valid');
+  assert.deepEqual(deriveVehicleMotion(parsed.payload), {
+    forwardMps2: 2.4,
+    lateralMps2: -3.6,
+    verticalMps2: 0.2,
+    yawRateRadPerSec: -0.44,
+  });
+
+  const withoutFluAxes = compactStatePayload({ q: { p: 50000, f: [] } });
+  assert.equal(deriveVehicleMotion(withoutFluAxes), null);
 });
 
 test('invalid vectors and unnormalized attitude are rejected', () => {
