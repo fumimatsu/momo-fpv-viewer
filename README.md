@@ -393,6 +393,14 @@ http://127.0.0.1:18080/viewer.html#debug=1&deviceStatus=off&autoStart=0&autoReco
 
 `autoStart=0` は FPV 映像へ接続しないための指定です。Race HUD / RaceWS の表示だけを切り分ける時に使います。実運用で映像も同時に見る場合は `autoStart=1`、または既定値のままにします。Race Control は別 WebSocket なので、FPV 接続の有無とは独立して動きます。
 
+Relay Pilot の Drive 表示だけをローカルで確認する場合は、次を使います。
+
+```text
+http://127.0.0.1:18080/variants/relay/pilot.html?signaling=relay&autoStart=0&driveUiTest=1
+```
+
+`driveUiTest=1` は `autoStart=0` の時だけ有効です。Drive On / Off の見た目と画面遷移だけを確認でき、RC コマンド、Relay の `DRIVE:` 状態、FFB 出力はいずれも送信しません。
+
 公開 Viewer で Ayame と Race Control を同時に使う場合:
 
 ```text

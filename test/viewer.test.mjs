@@ -46,6 +46,21 @@ test('Relay Pilot keeps both Drive controls synchronized with the command channe
   assert.match(rcUi, /updateDriveToggleUi\(canSend\);/);
 });
 
+test('Relay Pilot allows a local-only Drive UI test without arming output', () => {
+  const relayJs = readProjectFile('variants/relay/pilot.js');
+  const setDriveEnabled = relayJs.slice(
+    relayJs.indexOf('function setDriveEnabled(enabled)'),
+    relayJs.indexOf('function toggleDrive()'),
+  );
+
+  assert.match(relayJs, /const DRIVE_UI_TEST_MODE = !AUTO_START && getBooleanParam\('driveUiTest', false\);/);
+  assert.match(relayJs, /const disabled = !canSend && !rcDriveEnabled && !DRIVE_UI_TEST_MODE;/);
+  assert.match(setDriveEnabled, /const canSend = isDataChannelOpen\(\);/);
+  assert.match(setDriveEnabled, /ffbOutputEnabled = FFB_ENABLED && canSend;/);
+  assert.match(setDriveEnabled, /if \(canSend\) \{\s*startRcTx\(\);\s*\} else \{\s*stopRcTx\(\);\s*\}/);
+  assert.match(relayJs, /if \(!isDataChannelOpen\(\) \|\| !usesRelayTransport\(\) \|\| !driveChannel/);
+});
+
 test('Race HUD markup is present in viewer.html', () => {
   const html = readProjectFile('viewer.html');
   for (const id of [
