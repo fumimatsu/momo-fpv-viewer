@@ -210,6 +210,8 @@ Viewer は DataChannel で `S:1500,T:1500` 形式の RC コマンドを送れま
 
 `Drive` が ON の時だけ、キーボード入力でスライダー値を変更します。
 
+Relay Pilot のスマホ、ハンコン、接続しない UI テストの URL プリセットと安全条件は [docs/control-operation-presets.md](docs/control-operation-presets.md) を参照してください。
+
 - 左右: steering
 - 上下: throttle
 - Space: neutral

@@ -59,6 +59,8 @@ test('Relay Pilot allows a local-only Drive UI test without arming output', () =
   assert.match(setDriveEnabled, /ffbOutputEnabled = FFB_ENABLED && canSend;/);
   assert.match(setDriveEnabled, /if \(canSend\) \{\s*startRcTx\(\);\s*\} else \{\s*stopRcTx\(\);\s*\}/);
   assert.match(relayJs, /if \(!isDataChannelOpen\(\) \|\| !usesRelayTransport\(\) \|\| !driveChannel/);
+  assert.match(relayJs, /if \(DRIVE_UI_TEST_MODE\) \{\s*btnReconnect\.textContent = 'TEST MODE';[\s\S]*?btnReconnect\.disabled = true;/);
+  assert.match(relayJs, /async function connect\(options = \{\}\) \{\s*if \(DRIVE_UI_TEST_MODE\) \{\s*shouldReconnect = false;[\s\S]*?return;/);
 });
 
 test('Race HUD markup is present in viewer.html', () => {
