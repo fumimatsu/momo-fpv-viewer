@@ -28,6 +28,24 @@ test('Relay Pilot sends Drive state on a reliable dedicated channel', () => {
   assert.match(relayJs, /sendDriveState\(\);\s*\n\s*if \(enabled\)/);
 });
 
+test('Relay Pilot keeps both Drive controls synchronized with the command channel', () => {
+  const relayJs = readProjectFile('variants/relay/pilot.js');
+  const connectionUi = relayJs.slice(
+    relayJs.indexOf('function updateConnectionUi()'),
+    relayJs.indexOf('function updateTimerUi()'),
+  );
+  const rcUi = relayJs.slice(
+    relayJs.indexOf('function updateRcUi()'),
+    relayJs.indexOf('function updateTelemetryUi()'),
+  );
+
+  assert.match(relayJs, /function updateDriveToggleUi\(canSend = dataChannel && dataChannel\.readyState === 'open'\)/);
+  assert.match(relayJs, /btnDrive\.disabled = disabled;/);
+  assert.match(relayJs, /driveHudMode\.disabled = disabled;/);
+  assert.match(connectionUi, /updateDriveToggleUi\(canSend\);/);
+  assert.match(rcUi, /updateDriveToggleUi\(canSend\);/);
+});
+
 test('Race HUD markup is present in viewer.html', () => {
   const html = readProjectFile('viewer.html');
   for (const id of [
