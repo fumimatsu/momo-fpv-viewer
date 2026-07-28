@@ -23,7 +23,7 @@ Relay Pilot は、スマホのタッチ操作、ハンコン操作、接続し�
 | --- | --- | --- | --- |
 | スマホ | `signaling=relay&autoStart=1&controlUi=manual&gamepad=0&ffbEnabled=0` | DataChannel が `open`、Drive On | タッチ UI の RC コマンド |
 | ハンコン | `signaling=relay&autoStart=1&controlUi=drive&gamepad=1` | DataChannel が `open`、Drive On | ハンコンの RC コマンド。FFB は保存済みの入力 profile が有効な場合だけ出力 |
-| ローカル UI テスト | `signaling=relay&autoStart=0&autoReconnect=0&controlUi=manual&gamepad=0&ffbEnabled=0&driveUiTest=1` | なし。Drive On は表示確認だけ | RC、`DRIVE:`、FFB を出力しない |
+| ローカル UI テスト | `signaling=relay&autoStart=0&autoReconnect=0&controlUi=test&gamepad=0&ffbEnabled=0&driveUiTest=1` | なし。Drive On は表示確認だけ | RC、`DRIVE:`、FFB を出力しない |
 
 ### スマホ
 
@@ -51,11 +51,12 @@ Relay Pilot は、スマホのタッチ操作、ハンコン操作、接続し�
 ### ローカル UI テスト
 
 ```text
-<PILOT_URL>?signaling=relay&autoStart=0&autoReconnect=0&controlUi=manual&gamepad=0&ffbEnabled=0&driveUiTest=1
+<PILOT_URL>?signaling=relay&autoStart=0&autoReconnect=0&controlUi=test&gamepad=0&ffbEnabled=0&driveUiTest=1
 ```
 
 - `autoStart=0` のため、Relay への接続を開始しない。CONNECT は `TEST MODE` と表示されて無効になり、コードからの接続開始も拒否する。
 - `driveUiTest=1` は `autoStart=0` と併用した時だけ有効である。
+- `controlUi=test` は Drive Off で手動 UI、Drive On でハンコン用 Drive HUD を表示する。ハンコンの接続は不要である。
 - Drive On / Off の表示、タッチ UI、Race HUD の配置を確認できる。必要なら `raceBattleDemo=1` を追加する。
 - RC コマンド、Relay の `DRIVE:` 状態、FFB はいずれも送信しない。実車接続テストの URL と混在させない。
 

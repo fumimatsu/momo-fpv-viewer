@@ -54,6 +54,7 @@ test('Relay Pilot allows a local-only Drive UI test without arming output', () =
   );
 
   assert.match(relayJs, /const DRIVE_UI_TEST_MODE = !AUTO_START && getBooleanParam\('driveUiTest', false\);/);
+  assert.match(relayJs, /return \['auto', 'manual', 'drive', 'test'\]\.includes\(mode\) \? mode : 'auto';/);
   assert.match(relayJs, /const disabled = !canSend && !rcDriveEnabled && !DRIVE_UI_TEST_MODE;/);
   assert.match(setDriveEnabled, /const canSend = isDataChannelOpen\(\);/);
   assert.match(setDriveEnabled, /ffbOutputEnabled = FFB_ENABLED && canSend;/);
@@ -61,6 +62,7 @@ test('Relay Pilot allows a local-only Drive UI test without arming output', () =
   assert.match(relayJs, /if \(!isDataChannelOpen\(\) \|\| !usesRelayTransport\(\) \|\| !driveChannel/);
   assert.match(relayJs, /if \(DRIVE_UI_TEST_MODE\) \{\s*btnReconnect\.textContent = 'TEST MODE';[\s\S]*?btnReconnect\.disabled = true;/);
   assert.match(relayJs, /async function connect\(options = \{\}\) \{\s*if \(DRIVE_UI_TEST_MODE\) \{\s*shouldReconnect = false;[\s\S]*?return;/);
+  assert.match(relayJs, /if \(CONTROL_UI_MODE === 'test'\) \{\s*return rcDriveEnabled;\s*\}/);
 });
 
 test('Race HUD markup is present in viewer.html', () => {
