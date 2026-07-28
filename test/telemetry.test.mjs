@@ -6,6 +6,7 @@ const require = createRequire(import.meta.url);
 const {
   MAX_WIRE_BYTES,
   deriveVehicleMotion,
+  MotionFeatureExtractor,
   TelemetryMockGenerator,
   TelemetryTracker,
   encodeTelemetry,
@@ -38,6 +39,23 @@ function compactStatePayload(overrides = {}) {
     m: { a: [2.4, -3.6, 0.2], y: -0.44 },
     q: { p: 50000, f: ['flu_axes'] },
     ...overrides,
+  };
+}
+
+function impactCandidatePayload({ magnitudeMps2, jerkMps3 }) {
+  return {
+    v: 2,
+    k: 'e',
+    src: 'imu0',
+    boot: '7f3a21c4',
+    seq: 11,
+    t_us: 1050000,
+    e: {
+      n: 'impact_candidate',
+      m: magnitudeMps2,
+      a: [1, 0, 0],
+      j: jerkMps3,
+    },
   };
 }
 
@@ -112,6 +130,24 @@ test('events advance sequence without refreshing state freshness', () => {
   const snapshot = tracker.getSnapshot(1251);
   assert.equal(snapshot.primary.stale, true);
   assert.equal(snapshot.counters.event, 1);
+});
+
+test('impact tiers require jerk only for heavy impacts', () => {
+  const cases = [
+    { magnitudeMps2: 10.0, jerkMps3: 80.0, expected: 'weak' },
+    { magnitudeMps2: 11.9, jerkMps3: 250.0, expected: 'weak' },
+    { magnitudeMps2: 12.0, jerkMps3: 80.0, expected: 'strong' },
+    { magnitudeMps2: 17.9, jerkMps3: 249.0, expected: 'strong' },
+    { magnitudeMps2: 18.0, jerkMps3: 249.0, expected: 'strong' },
+    { magnitudeMps2: 18.0, jerkMps3: 250.0, expected: 'severe' },
+  ];
+
+  for (const item of cases) {
+    const motion = new MotionFeatureExtractor();
+    motion.ingest(compactStatePayload(), 1000);
+    const snapshot = motion.ingest(impactCandidatePayload(item), 1050);
+    assert.equal(snapshot.lastImpactEvent.impactClass, item.expected);
+  }
 });
 
 test('mock generator emits valid compact state and impact messages', () => {
