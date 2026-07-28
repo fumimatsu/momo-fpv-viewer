@@ -247,6 +247,17 @@ test('Relay Pilot exposes a compact transparent battle meter below the position 
   assert.doesNotMatch(relayJs, /lastLapMs[^\n]*intervalToAheadMs/);
 });
 
+test('Relay Pilot supports race-wide ALL TIME countdown mode', () => {
+  const relayJs = readProjectFile('variants/relay/pilot.js');
+  assert.match(relayJs, /allTimeMode: normalizeAllTimeMode\(state\.allTimeMode\)/);
+  assert.match(relayJs, /mode === 'countdown'/);
+  assert.match(relayJs, /Math\.max\(0, base - elapsedSinceSample\)/);
+  assert.match(
+    relayJs,
+    /getDisplayedRaceTime\(raceState\.totalTimeMs, raceState\.allTimeMode\)/,
+  );
+});
+
 test('Relay Pilot renders FLU telemetry in a G meter and reserves vehicle health UI', () => {
   const relayHtml = readProjectFile('variants/relay/pilot.html');
   const relayJs = readProjectFile('variants/relay/pilot.js');
