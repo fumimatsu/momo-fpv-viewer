@@ -257,6 +257,8 @@ test('Relay Pilot renders FLU telemetry in a G meter and reserves vehicle health
   assert.match(relayHtml, /class="drive-g-label accel">ACC/);
   assert.match(relayHtml, /id="driveDamagePanel" class="drive-damage-panel" hidden/);
   assert.match(relayHtml, /\.drive-metrics\[data-damage="active"\]/);
+  assert.match(relayHtml, /\.drive-instruments \{\s*display: grid;\s*grid-template-columns: minmax\(30px, 1fr\) auto minmax\(38px, 1fr\);/);
+  assert.match(relayHtml, /<div class="drive-instruments">[\s\S]*drive-pedal brake[\s\S]*id="driveMetrics"[\s\S]*drive-pedal throttle[\s\S]*<\/div>\s*<div class="drive-steering">/);
   assert.match(relayJs, /const G_METER_STANDARD_GRAVITY_MPS2 = 9\.80665/);
   assert.match(relayJs, /const G_METER_FULL_SCALE_G = Math\.max\(0\.5, Math\.min\(3\.0, getNumberParam\('gMeterScaleG', 1\.5\)\)\)/);
   assert.match(relayJs, /function updateDriveGmeter\(motion\)/);
