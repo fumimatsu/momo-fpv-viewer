@@ -210,6 +210,26 @@ test('Relay Pilot exposes a compact transparent battle meter below the position 
   assert.doesNotMatch(relayJs, /lastLapMs[^\n]*intervalToAheadMs/);
 });
 
+test('Relay Pilot renders FLU telemetry in a G meter and reserves vehicle health UI', () => {
+  const relayHtml = readProjectFile('variants/relay/pilot.html');
+  const relayJs = readProjectFile('variants/relay/pilot.js');
+  assert.match(relayHtml, /id="driveMetrics" class="drive-metrics" data-damage="reserved"/);
+  assert.match(relayHtml, /id="driveGmeter" class="drive-g-meter" data-state="waiting"/);
+  assert.match(relayHtml, /id="driveGmeterDot" class="drive-g-dot"/);
+  assert.match(relayHtml, /class="drive-g-label brake">BRK/);
+  assert.match(relayHtml, /class="drive-g-label accel">ACC/);
+  assert.match(relayHtml, /id="driveDamagePanel" class="drive-damage-panel" hidden/);
+  assert.match(relayHtml, /\.drive-metrics\[data-damage="active"\]/);
+  assert.match(relayJs, /const G_METER_STANDARD_GRAVITY_MPS2 = 9\.80665/);
+  assert.match(relayJs, /const G_METER_FULL_SCALE_G = Math\.max\(0\.5, Math\.min\(3\.0, getNumberParam\('gMeterScaleG', 1\.5\)\)\)/);
+  assert.match(relayJs, /function updateDriveGmeter\(motion\)/);
+  assert.match(relayJs, /motion\?\.motion\?\.forwardMps2/);
+  assert.match(relayJs, /motion\?\.motion\?\.lateralMps2/);
+  assert.match(relayJs, /-leftG \/ G_METER_FULL_SCALE_G/);
+  assert.match(relayJs, /forwardG \/ G_METER_FULL_SCALE_G/);
+  assert.match(relayJs, /updateDriveGmeter\(motion\);/);
+});
+
 test('Race banner auto-hides during normal green running', () => {
   const html = readProjectFile('viewer.html');
   const js = readProjectFile('viewer.js');
