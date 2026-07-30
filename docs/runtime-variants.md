@@ -7,7 +7,7 @@ Viewer のソースリポジトリは `fumimatsu/momo-fpv-viewer` とする。
 | Variant | 正本 | 接続経路 | 配布先 |
 | --- | --- | --- | --- |
 | Direct | `viewer.html` / `viewer.js` | Pi 直結 P2P、Ayame | ローカル HTTP、GitHub Pages |
-| Relay Pilot | `variants/relay/pilot.html` / `variants/relay/pilot.js` / `variants/relay/ffb-bridge.js` | Local Relay | `momo/tools/momo-relay/web/` |
+| Relay Pilot | `variants/relay/pilot.html` / `variants/relay/pilot.js` / `variants/relay/garage.html` / `variants/relay/ffb-bridge.js` | Local Relay | `momo/tools/momo-relay/web/` |
 
 `momo-fpv` の `client/` と `device-html/` は Pi 直結配布の運用コピーである。Relay Pilot の正本ではない。
 
@@ -40,3 +40,5 @@ Relay 用 Variant を `momo` へ反映する時は、`momo` 側で次を実行�
 同期元が未コミットならスクリプトは失敗する。`-AllowDirtySource` は調査用途だけであり、配布・コミット前に使わない。
 
 同期先の `viewer-source.json` は、Relay がどの Viewer commit から生成されたかを記録する。Relay 変更のレビューではこの commit と実ファイルの差分を確認する。
+
+`momo/tools/momo-relay/web/` のRelay clientを直接編集してはならない。Relay固有のUIやDataChannel処理も先にこのリポジトリのRelay Variantへ反映し、コミット後に同期する。同期スクリプトは記録済み正本からの乖離を既定で拒否する。正本へ移植済みの既存乖離を解消する場合だけ、明示的に `-AllowDistributionDrift` を使う。

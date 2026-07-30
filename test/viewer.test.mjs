@@ -12,7 +12,7 @@ function readProjectFile(path) {
 }
 
 test('viewer JavaScript files parse', () => {
-  for (const file of ['viewer.js', 'telemetry.js', 'gamepad-profile.js', 'ffb-bridge.js', 'gamepad.js', 'monitor.js', 'variants/relay/pilot.js']) {
+  for (const file of ['viewer.js', 'telemetry.js', 'gamepad-profile.js', 'ffb-bridge.js', 'gamepad.js', 'monitor.js', 'variants/relay/pilot.js', 'variants/relay/ffb-bridge.js']) {
     execFileSync(process.execPath, ['--check', join(rootDir, file)], {
       stdio: 'pipe',
     });
@@ -258,7 +258,7 @@ test('Relay Pilot supports race-wide ALL TIME countdown mode', () => {
   );
 });
 
-test('Relay Pilot renders FLU telemetry in a G meter and reserves vehicle health UI', () => {
+test('Relay Pilot renders FLU telemetry in a G meter and vehicle health UI', () => {
   const relayHtml = readProjectFile('variants/relay/pilot.html');
   const relayJs = readProjectFile('variants/relay/pilot.js');
   assert.match(relayHtml, /id="driveMetrics" class="drive-metrics" data-damage="reserved"/);
@@ -275,9 +275,25 @@ test('Relay Pilot renders FLU telemetry in a G meter and reserves vehicle health
   assert.match(relayJs, /function updateDriveGmeter\(motion\)/);
   assert.match(relayJs, /motion\?\.motion\?\.forwardMps2/);
   assert.match(relayJs, /motion\?\.motion\?\.lateralMps2/);
-  assert.match(relayJs, /-leftG \/ G_METER_FULL_SCALE_G/);
+  assert.match(relayJs, /leftG \/ G_METER_FULL_SCALE_G/);
   assert.match(relayJs, /forwardG \/ G_METER_FULL_SCALE_G/);
   assert.match(relayJs, /updateDriveGmeter\(motion\);/);
+  assert.match(relayJs, /function applyVehicleHealth\(message\)/);
+  assert.match(relayJs, /function getDamageFfbEffect\(nowMs, responseScale\)/);
+  assert.match(relayJs, /message\.startsWith\('VHS:'\)/);
+});
+
+test('Relay Pilot keeps the FFB bridge shared with the Direct Viewer', () => {
+  const directBridge = readProjectFile('ffb-bridge.js');
+  const relayBridge = readProjectFile('variants/relay/ffb-bridge.js');
+  assert.equal(relayBridge, directBridge);
+  assert.match(relayBridge, /triggerImpactPulse\(event\)/);
+});
+
+test('Relay garage is a source-owned page and opens Pilot relatively', () => {
+  const garage = readProjectFile('variants/relay/garage.html');
+  assert.match(garage, /fetch\('\/api\/v1\/pilot-devices'/);
+  assert.match(garage, /new URL\('pilot\.html', window\.location\.href\)/);
 });
 
 test('Race banner auto-hides during normal green running', () => {
