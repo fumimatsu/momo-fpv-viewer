@@ -72,7 +72,7 @@ wheel jitter.
 | `m.a[3]` | telemetry v2 compact | forward/lateral/vertical acceleration | Confirmed vehicle FLU axes. Up uses a fixed 1g subtraction; full attitude-aware gravity removal is not available. |
 | `m.y` | telemetry v2 compact | yaw rate, corner corroboration | Positive yaw is around the vehicle up axis. |
 | steering command | Viewer | initial steering angle proxy | Replace with actual servo angle when available. |
-| throttle / explicit brake | Viewer | Phase 1 speed proxy and bounded brake onset | Throttle lift is not used when fresh IMU deceleration is available. |
+| throttle / explicit brake | Viewer | Phase 1 speed proxy only | Front load uses fresh IMU deceleration, not throttle or brake commands. |
 | ESC RPM / wheel encoder | future | primary speed | Preferred source for slip work. |
 | GPS | future | low-rate absolute speed | Useful for drift correction, not road texture. |
 
@@ -90,7 +90,7 @@ vehicle profile.
 | `forwardAccel` | m/s2 | vehicle-frame IMU | available; negative is deceleration |
 | `lateralAccel` | m/s2 | vehicle-frame IMU | implemented in Relay Pilot |
 | `yawRate` | rad/s | vehicle-frame gyro | implemented in Relay Pilot |
-| `frontLoad` | 0..1 | deceleration plus bounded explicit-brake onset | implemented in Relay Pilot |
+| `frontLoad` | 0..1 | measured vehicle-frame deceleration | implemented in Relay Pilot |
 | `roadEnvelope` | 0..1 | filtered vertical acceleration | later |
 | `impact` | event | jerk plus acceleration threshold | implemented in Relay Pilot |
 | `slipConfidence` | 0..1 | speed, steering, yaw mismatch | only after measured speed |

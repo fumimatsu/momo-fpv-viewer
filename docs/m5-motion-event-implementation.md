@@ -45,16 +45,18 @@ M5 は高頻度 IMU から `impact_candidate` を発火時だけ送る。常時 
 
 ## FFB の段階
 
-Phase 1 の throttle 由来 friction / damper は維持する。Viewer は鮮度が有効な `cornerLoad` の時だけ、`ffbTelemetryCornerDamper`（既定 `0.10`）を baseline damper に加える。
+Phase 1 の throttle 由来 friction / damper は維持する。Viewer は鮮度が有効な `cornerLoad` に比例して damper と有界な方向トルクを加える。前荷重は throttle 操作から推測せず、車体前後加速度が `-3.0 m/s2` を下回った時に立ち上げ、`-7.0 m/s2` で最大にする。
 
-これは左右に引くトルクではない。停車時と telemetry stale 時は増分 0 であり、前回のように片側へ回り続ける原因を増やさない。
+前荷重は左右に引くトルクではない。telemetry stale 時は減衰して 0 へ戻り、片側へ回り続ける原因を増やさない。
 
 | 効果 | 現段階 | 条件 |
 | --- | --- | --- |
 | 旋回時の重さ | 実装 | fresh `cornerLoad` に比例する damper 増分 |
+| 旋回反トルク | 実装 | freshな左右加速度と`cornerLoad`から有界な反対方向トルクを生成 |
 | 自己復元トルク | 未実装 | 実速度または十分な速度信頼度が必要 |
 | 路面振動 | 未実装 | 上下加速度を帯域分離し、Bridge 側で生成する |
-| 衝撃パルス | 実装 | `strong` は 240 ms、`severe` は 420 ms、方向を持たない friction / damper 増分だけを加える |
+| 前荷重 | 実装 | 実測減速Gだけから friction / damper を増加。アクセル戻しとブレーキ指令は使わない |
+| 衝撃パルス | 実装 | Viewerが段階と方向を決め、Bridgeが縁石・側面・正面の短い往復トルクを通常FFBへ加算する |
 | スリップ | 未実装 | ESC RPM / encoder など実測速度が必要 |
 
 ## 次の実走検証

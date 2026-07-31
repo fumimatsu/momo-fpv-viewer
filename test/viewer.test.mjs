@@ -432,6 +432,16 @@ test('Relay Pilot forwards bounded directional telemetry torque to the FFB Bridg
   assert.match(relayJs, /FFB_TELEMETRY_TORQUE_MAX/);
 });
 
+test('Relay Pilot adds measured longitudinal front load without throttle-lift inference', () => {
+  const relayJs = readProjectFile('variants/relay/pilot.js');
+  const telemetryJs = readProjectFile('telemetry.js');
+  assert.match(telemetryJs, /function deriveFfbLongitudinalLoad\(/);
+  assert.match(relayJs, /function updateFfbFrontLoad\(/);
+  assert.match(relayJs, /frontLoadFriction/);
+  assert.match(relayJs, /frontLoadDamper/);
+  assert.doesNotMatch(relayJs, /getFfbBrakeIntent/);
+});
+
 test('Relay Pilot sends event-level impact pulses to the FFB Bridge', () => {
   const relayJs = readProjectFile('variants/relay/pilot.js');
   const bridgeJs = readProjectFile('variants/relay/ffb-bridge.js');

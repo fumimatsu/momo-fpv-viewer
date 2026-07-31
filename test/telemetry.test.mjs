@@ -5,6 +5,7 @@ import test from 'node:test';
 const require = createRequire(import.meta.url);
 const {
   MAX_WIRE_BYTES,
+  deriveFfbLongitudinalLoad,
   deriveVehicleMotion,
   MotionFeatureExtractor,
   TelemetryMockGenerator,
@@ -84,6 +85,29 @@ test('v2 compact state provides the confirmed FLU motion values', () => {
 
   const withoutFluAxes = compactStatePayload({ q: { p: 50000, f: [] } });
   assert.equal(deriveVehicleMotion(withoutFluAxes), null);
+});
+
+test('longitudinal FFB load uses measured deceleration without throttle inference', () => {
+  assert.deepEqual(
+    deriveFfbLongitudinalLoad({ forwardMps2: Number.NaN }),
+    { frontLoad: 0, measuredLoad: 0 },
+  );
+  assert.deepEqual(
+    deriveFfbLongitudinalLoad({ forwardMps2: 1.0 }),
+    { frontLoad: 0, measuredLoad: 0 },
+  );
+  assert.deepEqual(
+    deriveFfbLongitudinalLoad({ forwardMps2: -3.0 }),
+    { frontLoad: 0, measuredLoad: 0 },
+  );
+  assert.deepEqual(
+    deriveFfbLongitudinalLoad({ forwardMps2: -5.0 }),
+    { frontLoad: 0.5, measuredLoad: 0.5 },
+  );
+  assert.deepEqual(
+    deriveFfbLongitudinalLoad({ forwardMps2: -8.0 }),
+    { frontLoad: 1, measuredLoad: 1 },
+  );
 });
 
 test('invalid vectors and unnormalized attitude are rejected', () => {

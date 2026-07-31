@@ -53,28 +53,22 @@ Test in this order: stopped, low throttle, sustained throttle, throttle release,
 ## Longitudinal Front Load
 
 The Relay Pilot uses the confirmed FLU forward acceleration as the primary
-front-load signal. A throttle command below 1500 us provides only a bounded
-onset assist while the speed proxy indicates motion. Throttle lift is not used:
-it predicts deceleration from an operation that the IMU can now measure
-directly. Positive forward acceleration means acceleration and negative values
-mean deceleration.
+front-load signal. Throttle command and throttle lift are not used: they predict
+deceleration from operations that the IMU can now measure directly. Positive
+forward acceleration means acceleration and negative values mean deceleration.
 
 ```text
 measuredLoad = normalize(-forwardAccel, 3.0 .. 7.0 m/s2)
-commandAssist = explicitBrake * 0.30, only while speedProxy indicates motion
-frontLoadRaw = max(measuredLoad, commandAssist)
-frontLoad = asymmetricLowPass(frontLoadRaw, attack=80 ms, release=200 ms)
+frontLoad = asymmetricLowPass(measuredLoad, attack=80 ms, release=200 ms)
 
 friction += frontLoad * 0.10
 damper   += frontLoad * 0.14
 ```
 
-Explicit brake only makes the onset more immediate. It cannot create more than
-30% front load without measured deceleration, and a reverse command at rest is
-gated out. Stale telemetry decays front load to zero instead of substituting a
-throttle-lift estimate. The effect is directionless: it makes steering heavier
-without pulling the wheel left or right. Acceleration-induced front unloading
-is not enabled until run logs establish a stable range.
+Stale telemetry decays front load to zero instead of substituting a command
+estimate. The effect is directionless: it makes steering heavier without
+pulling the wheel left or right. Acceleration-induced front unloading is not
+enabled until run logs establish a stable range.
 
 ## Speed Source Roadmap
 
