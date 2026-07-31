@@ -2,7 +2,9 @@
 
 ## Status
 
-Design decision, not implemented.
+Partially implemented. Relay Pilot currently uses confirmed FLU acceleration
+and yaw-rate telemetry for corner load, bounded impact, and braking front load.
+Measured vehicle speed, road texture, and slip remain future work.
 
 This document defines the telemetry-derived FFB stages after the current Phase 1
 baseline resistance. It applies the useful parts of the rFactor RealFeel model:
@@ -19,11 +21,11 @@ References:
 ## Decisions
 
 1. Do not reintroduce a fixed, steering-angle-only centering spring.
-2. Keep the current Phase 1 `friction` and `damper` model as the only live
-   output until telemetry replay has been reviewed.
-3. Add directional torque only as a telemetry-derived `alignTorque`: it is zero
-   while stopped, when telemetry is stale, and when the car is not carrying
-   cornering load.
+2. Keep every telemetry-derived live effect bounded and independently
+   removable. New effect families still require recorded replay before live use.
+3. Directional torque is telemetry-derived only: it is zero when telemetry is
+   stale or the car is not carrying cornering load. Longitudinal front load
+   changes friction and damping, not torque direction.
 4. Keep sensor validity and coordinate-frame work on the vehicle. Keep driver
    feel tuning in the Viewer. Keep DirectInput timing, limits, effect ownership,
    and emergency stop in the native Bridge.
@@ -67,11 +69,10 @@ wheel jitter.
 
 | Signal | Present state | FFB use | Notes |
 | --- | --- | --- | --- |
-| `imu.a[3]` | telemetry v1 | lateral/vertical acceleration | Its physical unit and axis convention must be recorded, then transformed into a verified vehicle frame and gravity compensated. |
-| `imu.g[3]` | telemetry v1 | yaw rate, impact corroboration | Its physical unit and axis/sign convention must be recorded before conversion to the internal yaw-rate unit. |
-| `att.q`, `att.rpy` | telemetry v1 | gravity compensation | Never use raw accelerometer values as vehicle acceleration without this step. |
+| `m.a[3]` | telemetry v2 compact | forward/lateral/vertical acceleration | Confirmed vehicle FLU axes. Up uses a fixed 1g subtraction; full attitude-aware gravity removal is not available. |
+| `m.y` | telemetry v2 compact | yaw rate, corner corroboration | Positive yaw is around the vehicle up axis. |
 | steering command | Viewer | initial steering angle proxy | Replace with actual servo angle when available. |
-| throttle / brake | Viewer | Phase 1 speed proxy | Do not treat as measured speed. |
+| throttle / explicit brake | Viewer | Phase 1 speed proxy and bounded brake onset | Throttle lift is not used when fresh IMU deceleration is available. |
 | ESC RPM / wheel encoder | future | primary speed | Preferred source for slip work. |
 | GPS | future | low-rate absolute speed | Useful for drift correction, not road texture. |
 
@@ -86,16 +87,26 @@ vehicle profile.
 | `speedEstimate` | m/s or 0..1 proxy | speed source | Phase 1 proxy only |
 | `speedConfidence` | 0..1 | estimator quality | later |
 | `steerAngle` | -1..1 | command, later servo | available as command |
-| `lateralAccel` | m/s2 | normalized, gravity-compensated IMU | log first |
-| `yawRate` | rad/s | normalized vehicle-frame gyro | log first |
+| `forwardAccel` | m/s2 | vehicle-frame IMU | available; negative is deceleration |
+| `lateralAccel` | m/s2 | vehicle-frame IMU | implemented in Relay Pilot |
+| `yawRate` | rad/s | vehicle-frame gyro | implemented in Relay Pilot |
+| `frontLoad` | 0..1 | deceleration plus bounded explicit-brake onset | implemented in Relay Pilot |
 | `roadEnvelope` | 0..1 | filtered vertical acceleration | later |
-| `impact` | event | jerk plus acceleration threshold | later |
+| `impact` | event | jerk plus acceleration threshold | implemented in Relay Pilot |
 | `slipConfidence` | 0..1 | speed, steering, yaw mismatch | only after measured speed |
 
 ## Directional Align Torque
 
-The first directional effect is not a permanent spring. It represents only the
-part of self-aligning force that can be inferred with confidence while cornering.
+The current Relay Pilot directional effect is not a permanent spring. It uses
+the sign of lateral acceleration and a corner confidence built from lateral
+acceleration plus yaw rate:
+
+```text
+cornerTorque = sign(lateralAccel) * cornerLoad * cornerGain
+```
+
+It decays to zero when the state is stale or corner confidence disappears. A
+future measured-speed and steering-response model can replace it with:
 
 ```text
 cornerLoad = clamp(abs(lateralAccel) / lateralAccelReference, 0, 1)
@@ -162,8 +173,8 @@ output separately. Add a CSV or structured log before enabling new live torque.
 | --- | --- |
 | Identity | local monotonic time, source, boot, sequence, profile IDs |
 | Telemetry health | local receive age, period, stale, sequence gap, quality flags |
-| Raw motion | vehicle-frame `aLat`, `aVert`, `yawRate`, steering command/actual, speed estimate/confidence |
-| Derived features | `cornerLoad`, `speedGate`, `alignRaw`, filtered align, road envelope, impact event ID |
+| Raw motion | vehicle-frame `aForward`, `aLat`, `aVert`, `yawRate`, steering command/actual, brake intent, speed estimate/confidence |
+| Derived features | `cornerLoad`, `frontLoad`, `speedGate`, `alignRaw`, filtered align, road envelope, impact event ID |
 | Output | requested torque/friction/damper, applied effect values, output clamp, device capabilities |
 | Safety | Drive state, emergency stop, device lost, watchdog reason |
 

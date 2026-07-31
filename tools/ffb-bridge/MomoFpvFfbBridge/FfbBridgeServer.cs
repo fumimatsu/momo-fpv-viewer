@@ -12,7 +12,7 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
 {
     private const int Protocol = 1;
     private const string BridgeName = "Momo FPV FFB Bridge";
-    private const string BridgeVersion = "0.2.0-baseline";
+    private const string BridgeVersion = "0.3.0-telemetry";
     private static readonly TimeSpan FfbTimeout = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan StatusMinInterval = TimeSpan.FromMilliseconds(90);
 
@@ -224,8 +224,8 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
                         break;
                     }
 
-                    // baseline は throttle 由来の speedProxy で操舵抵抗だけを合成する。
-                    // telemetry 由来の rack / road / impact effect は次段階で別途追加する。
+                    // baseline は speedProxy 由来の抵抗と、Viewer が制限済みの
+                    // telemetry torque を同じ更新で合成する。
                     var effectMode = ReadString(root, "effectMode", "constant");
                     var torque = ReadDouble(root, "torque", 0);
                     var damper = ReadDouble(root, "damper", 0);
@@ -241,8 +241,9 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
                         var lowSpeed = 1.0 - speed;
 
                         // 停車時の重さは friction、走行中の粘りは damper で作る。
-                        // 速度代理値からの疑似センタリングは使わず、トルクは常にゼロに保つ。
-                        torque = 0;
+                        // 速度代理値から疑似センタリングは作らない。torque は Viewer が
+                        // 車体 telemetry から生成した方向性 effect だけを保持する。
+                        torque = Math.Clamp(torque, -1.0, 1.0);
                         friction = ClampUnit(baseFriction + parkingFriction * lowSpeed * lowSpeed);
                         damper = ClampUnit(baseDamper + speedDamper * speed * speed);
                         inertia = 0;

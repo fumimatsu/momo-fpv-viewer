@@ -5,6 +5,7 @@ import test from 'node:test';
 const require = createRequire(import.meta.url);
 const {
   MAX_WIRE_BYTES,
+  deriveFfbLongitudinalLoad,
   deriveVehicleMotion,
   MotionFeatureExtractor,
   TelemetryMockGenerator,
@@ -84,6 +85,36 @@ test('v2 compact state provides the confirmed FLU motion values', () => {
 
   const withoutFluAxes = compactStatePayload({ q: { p: 50000, f: [] } });
   assert.equal(deriveVehicleMotion(withoutFluAxes), null);
+});
+
+test('longitudinal FFB load combines measured braking with bounded command onset', () => {
+  assert.deepEqual(
+    deriveFfbLongitudinalLoad({ forwardMps2: 0, brakeIntent: 1, speedProxy: 0 }),
+    { frontLoad: 0, measuredLoad: 0, commandAssist: 0 },
+  );
+
+  const pedalOnset = deriveFfbLongitudinalLoad({
+    forwardMps2: -0.5,
+    brakeIntent: 1,
+    speedProxy: 0.4,
+  });
+  assert.equal(pedalOnset.frontLoad, 0.3);
+  assert.equal(pedalOnset.measuredLoad, 0);
+
+  const measuredBraking = deriveFfbLongitudinalLoad({
+    forwardMps2: -5,
+    brakeIntent: 0,
+    speedProxy: 0.4,
+  });
+  assert.equal(measuredBraking.frontLoad, 0.5);
+  assert.equal(measuredBraking.measuredLoad, 0.5);
+
+  const fullBraking = deriveFfbLongitudinalLoad({
+    forwardMps2: -8,
+    brakeIntent: 0,
+    speedProxy: 0,
+  });
+  assert.equal(fullBraking.frontLoad, 1);
 });
 
 test('invalid vectors and unnormalized attitude are rejected', () => {

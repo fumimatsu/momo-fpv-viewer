@@ -41,7 +41,8 @@ Viewer が Bridge へ接続した後、ブラウザコンソールで
 - Viewer は Bridge へ接続し、列挙した FFB 対応ホイールを自動 Acquire する。
 - 出力は Viewer の `Drive On` 中だけで、`Drive Off` では即座に `stopAll` を送る。
 - Viewer はスロットルとブレーキから平滑化した `speedProxy` を送る。これは実車速ではない。
-- Bridge は低速ほど `Friction`、speedProxy が高いほど `Damper` を加算する。baseline では方向性 torque を出さない。
+- Bridge は低速ほど `Friction`、speedProxy が高いほど `Damper` を加算する。speedProxy から方向性 torque は生成しないが、Viewer が車体 telemetry から生成して制限した torque は保持する。
+- Relay Pilot は減速時の前荷重を `Friction` と `Damper` の増加として渡す。方向性 torque にはしない。
 - 250 ms 間 Viewer から更新が来なければ Bridge が constant torque と condition effect の両方を停止する。
 - Viewer の Stop、切断、ページ離脱、Bridge 終了はすべて `stopAll` を送る。
 - Input 設定画面では、基礎/低速 friction と基礎/速度 damper をハンコンのプロファイルごとに調整できる。

@@ -344,6 +344,15 @@ test('Relay Pilot renders FLU telemetry in a G meter and vehicle health UI', () 
   assert.match(relayJs, /message\.startsWith\('VHS:'\)/);
 });
 
+test('Relay Pilot cache buster matches its build ID', () => {
+  const relayHtml = readProjectFile('variants/relay/pilot.html');
+  const relayJs = readProjectFile('variants/relay/pilot.js');
+  const buildId = relayJs.match(/const PILOT_BUILD_ID = '([^']+)'/)?.[1];
+  assert.ok(buildId);
+  assert.match(relayHtml, new RegExp(`pilot\\.js\\?v=${buildId}`));
+  assert.match(relayHtml, new RegExp(`telemetry\\.js\\?v=${buildId}`));
+});
+
 test('Relay Pilot keeps the FFB bridge shared with the Direct Viewer', () => {
   const directBridge = readProjectFile('ffb-bridge.js');
   const relayBridge = readProjectFile('variants/relay/ffb-bridge.js');
@@ -510,12 +519,19 @@ test('FFB presets are configured from the input setup and selectable in the View
   assert.match(gamepadJs, /relayPilotTarget \? relayPilotPath/);
   assert.match(bridgeClient, /deviceCapabilities/);
   assert.match(relayJs, /function updateFfbSpeedProxy\(\)/);
+  assert.match(relayJs, /function updateFfbFrontLoad\(motion, speedProxy\)/);
+  assert.match(relayJs, /deriveFfbLongitudinalLoad/);
+  assert.match(relayJs, /frontLoadFriction/);
+  assert.match(relayJs, /frontLoadDamper/);
+  assert.match(relayJs, /frontLoad: ffbFrontLoad/);
+  assert.match(relayJs, /brakeIntent: getFfbBrakeIntent\(\)/);
   assert.match(bridgeServer, /string\.Equals\(effectMode, "baseline", StringComparison\.OrdinalIgnoreCase\)/);
   assert.match(bridgeServer, /ReadDouble\(root, "baseFriction", 0\.28\)/);
   assert.match(bridgeServer, /ReadDouble\(root, "parkingFriction", 0\.08\)/);
   assert.match(bridgeServer, /friction = ClampUnit\(baseFriction \+ parkingFriction \* lowSpeed \* lowSpeed\)/);
   assert.match(bridgeServer, /damper = ClampUnit\(baseDamper \+ speedDamper \* speed \* speed\)/);
-  assert.match(bridgeServer, /torque = 0;/);
+  assert.match(bridgeServer, /torque = Math\.Clamp\(torque, -1\.0, 1\.0\);/);
+  assert.doesNotMatch(bridgeServer, /torque = 0;/);
   assert.doesNotMatch(bridgeServer, /virtualSteering/);
   assert.doesNotMatch(bridgeServer, /SmoothStep/);
   assert.match(backend, /Math\.Abs\(_lastTorque\) < 0\.0001 && _lastDamper <= 0\.0001 && _lastFriction <= 0\.0001/);

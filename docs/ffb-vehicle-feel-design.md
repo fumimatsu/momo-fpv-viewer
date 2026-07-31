@@ -23,9 +23,10 @@ The Bridge owns timing, effect application, output clamping, and safety stop. Th
 | --- | --- | --- | --- |
 | Baseline friction | speedProxy | Friction | Phase 1 |
 | Baseline damping | speedProxy | Damper | Phase 1 |
-| Self-aligning/rack load | vehicle speed, lateral acceleration, steering response | Constant force or Spring | Later |
+| Corner load | lateral acceleration, yaw rate | Constant force and Damper | Relay Pilot |
+| Front load under braking | longitudinal deceleration, brake intent | Friction and Damper | Relay Pilot |
 | Road texture | filtered vertical acceleration | Periodic effect | Later |
-| Impact | jerk/event | bounded pulse | Later |
+| Impact | jerk/event | bounded pulse | Relay Pilot |
 | Slip | steering response and yaw mismatch | reduce rack load plus bounded shake | Later |
 
 ## Phase 1 Baseline
@@ -49,6 +50,32 @@ The starting values are tuning defaults, not physical measurements:
 
 Test in this order: stopped, low throttle, sustained throttle, throttle release, brake, then Drive Off. Change one parameter per run and record subjective notes. Pit House mechanical centering, damping, and friction remain off so the Bridge is the only adjustable software layer.
 
+## Longitudinal Front Load
+
+The Relay Pilot uses the confirmed FLU forward acceleration as the primary
+front-load signal. A throttle command below 1500 us provides only a bounded
+onset assist while the speed proxy indicates motion. Throttle lift is not used:
+it predicts deceleration from an operation that the IMU can now measure
+directly. Positive forward acceleration means acceleration and negative values
+mean deceleration.
+
+```text
+measuredLoad = normalize(-forwardAccel, 3.0 .. 7.0 m/s2)
+commandAssist = explicitBrake * 0.30, only while speedProxy indicates motion
+frontLoadRaw = max(measuredLoad, commandAssist)
+frontLoad = asymmetricLowPass(frontLoadRaw, attack=80 ms, release=200 ms)
+
+friction += frontLoad * 0.10
+damper   += frontLoad * 0.14
+```
+
+Explicit brake only makes the onset more immediate. It cannot create more than
+30% front load without measured deceleration, and a reverse command at rest is
+gated out. Stale telemetry decays front load to zero instead of substituting a
+throttle-lift estimate. The effect is directionless: it makes steering heavier
+without pulling the wheel left or right. Acceleration-induced front unloading
+is not enabled until run logs establish a stable range.
+
 ## Speed Source Roadmap
 
 1. `speedProxy`: throttle/brake-derived and suitable only for initial feel tuning.
@@ -62,6 +89,9 @@ Test in this order: stopped, low throttle, sustained throttle, throttle release,
 - Send compact, normalized features instead of raw high-rate vibration data when possible.
 - Let the Bridge synthesize high-frequency road feel from a low-bandwidth envelope so browser and network jitter do not become wheel vibration.
 - All telemetry-derived effects decay to zero on stale input. New data must not re-enable an emergency-stopped FFB session without an explicit Drive On cycle.
+- The Bridge baseline mixer must preserve the bounded telemetry torque supplied
+  by the Viewer. The speedProxy baseline itself never generates centering
+  torque.
 
 ## Safety
 

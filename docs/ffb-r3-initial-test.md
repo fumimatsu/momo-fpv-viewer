@@ -148,7 +148,7 @@ Acceptance: each mapping can be tuned without vehicle firmware changes and stale
 
 Input 設定画面で FFB を有効にして開いた Viewer は、スロットル/ブレーキ入力から平滑化した `speedProxy` を Bridge へ送る。speedProxy は実車速ではないため、GPS、ESC、光学速度、または IMU を含む推定器が導入されたら置き換える。
 
-Bridge は `friction = base + lowSpeed * parking`、`damper = base + speed^2 * speedDamper` を合成する。停車時の重さは friction、走行時の粘りは damper で作り、baseline では方向性 torque を加えない。FFB を有効にして Viewer を開くと Bridge 接続と対応デバイスの Acquire までは自動で行うが、出力は `Drive On` の間だけである。`Drive Off`、切断、ページ離脱、Bridge 終了、250 ms の Bridge watchdog は constant torque と condition effect のすべてを停止する。手順は [../tools/ffb-bridge/README.md](../tools/ffb-bridge/README.md) を参照する。
+Bridge は `friction = base + lowSpeed * parking`、`damper = base + speed^2 * speedDamper` を合成する。停車時の重さは friction、走行時の粘りは damper で作る。speedProxy 自体から方向性 torque は作らないが、Relay Pilot が車体 telemetry から生成して上限処理した torque は保持する。FFB を有効にして Viewer を開くと Bridge 接続と対応デバイスの Acquire までは自動で行うが、出力は `Drive On` の間だけである。`Drive Off`、切断、ページ離脱、Bridge 終了、250 ms の Bridge watchdog は constant torque と condition effect のすべてを停止する。手順は [../tools/ffb-bridge/README.md](../tools/ffb-bridge/README.md) を参照する。
 
 Viewer は raw wheel torque を任意に送らない。Bridge が device Acquire、基礎抵抗の合成、effect 更新、出力 clamp、停止を所有する。テレメトリーを使う段階では、横G、ヨーレート、上下加速度の帯域別特徴量、衝撃イベントを正規化済み入力として追加する。
 
