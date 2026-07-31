@@ -41,8 +41,17 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
 
     public async Task RunAsync(CancellationToken token)
     {
-        _listener.Start();
+        try
+        {
+            _listener.Start();
+        }
+        catch (Exception ex)
+        {
+            BridgeLog.Error($"Listener start failed for ws://{_config.Host}:{_config.Port}.", ex);
+            throw;
+        }
         IsListening = true;
+        BridgeLog.Info($"Listening on ws://{_config.Host}:{_config.Port}.");
         Console.WriteLine($"{BridgeName} {BridgeVersion}");
         Console.WriteLine($"Listening on ws://{_config.Host}:{_config.Port}");
         Console.WriteLine($"Backend: {_backend.BackendName}; max output clamp {_config.MaxOutput:0.00}");
@@ -94,6 +103,7 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
         // Bridge はViewer PCのloopbackからだけ受け、Viewer originはlocalhostまたは明示許可分に限定する。
         if (!IsLocalEndpoint(client.Client.RemoteEndPoint) || !_config.IsAllowedOrigin(handshake.Origin))
         {
+            BridgeLog.Warn($"Rejected client. remote={client.Client.RemoteEndPoint}, origin={handshake.Origin}");
             await WriteHttpResponseAsync(stream, "403 Forbidden", "Forbidden\n", token);
             return;
         }
@@ -112,6 +122,7 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
         using var webSocket = WebSocket.CreateFromStream(stream, true, null, TimeSpan.FromSeconds(20));
         var state = new ClientState();
         Interlocked.Increment(ref _activeClientCount);
+        BridgeLog.Info($"Viewer connected. origin={handshake.Origin}, clients={ActiveClientCount}");
         try
         {
             await ReceiveLoopAsync(webSocket, state, token);
@@ -119,6 +130,7 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
         finally
         {
             Interlocked.Decrement(ref _activeClientCount);
+            BridgeLog.Info($"Viewer disconnected. clients={ActiveClientCount}");
         }
     }
 
@@ -153,6 +165,7 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
         catch (Exception ex)
         {
             Console.WriteLine($"client error: {ex.Message}");
+            BridgeLog.Error("Viewer WebSocket error.", ex);
         }
         finally
         {
@@ -212,6 +225,7 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
                     }, token);
                     if (!result.Ok)
                     {
+                        BridgeLog.Warn($"DirectInput acquire failed. deviceId={ReadString(root, "deviceId")}, message={result.Message}");
                         await SendAsync(webSocket, new { type = "error", code = "ACQUIRE_FAILED", message = result.Message }, token);
                     }
                     break;

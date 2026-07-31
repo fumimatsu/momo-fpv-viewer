@@ -605,6 +605,16 @@ test('Gamepad mappings are stored and selected per VID and PID profile', () => {
   assert.match(gamepadJs, /url\.origin !== location\.origin/);
   assert.match(gamepadJs, /variants\\\/relay/);
   assert.match(gamepadJs, /profileApi\.saveProfile\(/);
+  const captureStart = gamepadJs.indexOf('async function captureGamepad');
+  const captureEnd = gamepadJs.indexOf('\nfunction render()', captureStart);
+  const captureBody = gamepadJs.slice(captureStart, captureEnd);
+  const boundaryIndex = captureBody.indexOf('setCapturedBoundary(label, gamepad)');
+  const saveIndex = captureBody.indexOf('saveMapping()');
+  assert.notEqual(boundaryIndex, -1, 'gamepad capture must update a calibration boundary');
+  assert.ok(
+    saveIndex > boundaryIndex,
+    'gamepad capture must persist throttle and brake boundaries after updating them',
+  );
   assert.match(gamepadJs, /data-select-gamepad/);
   assert.match(gamepadJs, /params\.set\("gamepadProfile", selectedProfileKey\)/);
   assert.match(viewerJs, /params\.get\('gamepadProfile'\)/);

@@ -19,6 +19,7 @@ Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed with exit code $LASTEXITCODE." }
 
 Copy-Item -LiteralPath (Join-Path $scriptRoot 'README.md') -Destination (Join-Path $publishDir 'README.md')
+Copy-Item -LiteralPath (Join-Path $scriptRoot 'allowed-origins.txt') -Destination (Join-Path $publishDir 'allowed-origins.txt')
 Compress-Archive -Path (Join-Path $publishDir '*') -DestinationPath $zipPath -CompressionLevel Optimal
 
 Write-Host "Created $zipPath"

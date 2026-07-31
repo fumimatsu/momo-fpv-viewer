@@ -31,6 +31,7 @@ internal sealed class BridgeMainForm : Form
     private readonly Label _testStatus = new() { AutoSize = true, ForeColor = Color.FromArgb(90, 110, 125), Text = "Viewer 未接続時だけ手動テストできます。" };
     private CancellationTokenSource? _testCts;
     private Task? _bridgeTask;
+    private string? _bridgeStartupError;
 
     public BridgeMainForm(BridgeConfig config, IFfbBackend backend, FfbBridgeServer bridgeServer)
     {
@@ -230,6 +231,7 @@ internal sealed class BridgeMainForm : Form
         }
         catch (Exception ex)
         {
+            BridgeLog.Error("Manual DirectInput test failed.", ex);
             _testStatus.ForeColor = Color.Firebrick;
             _testStatus.Text = $"Manual test failed: {ex.Message}";
         }
@@ -260,6 +262,7 @@ internal sealed class BridgeMainForm : Form
         if (result.Ok) return true;
         _testStatus.ForeColor = Color.Firebrick;
         _testStatus.Text = $"Device acquire failed: {result.Message}";
+        BridgeLog.Warn($"Manual DirectInput acquire failed. deviceId={device.Id}, message={result.Message}");
         return false;
     }
 
@@ -298,7 +301,13 @@ internal sealed class BridgeMainForm : Form
         _ = _bridgeTask.ContinueWith(task =>
         {
             if (!task.IsFaulted || IsDisposed) return;
-            BeginInvoke(() => _bridgeStatus.Text = $"Failed: {task.Exception?.GetBaseException().Message}");
+            var error = task.Exception?.GetBaseException().Message ?? "Unknown startup failure.";
+            BeginInvoke(() =>
+            {
+                _bridgeStartupError = error;
+                BridgeLog.Error("Bridge startup failed.", task.Exception?.GetBaseException());
+                UpdateStatus();
+            });
         }, TaskScheduler.Default);
         RefreshDevices();
         _statusTimer.Start();
@@ -321,6 +330,7 @@ internal sealed class BridgeMainForm : Form
         }
         catch (Exception ex)
         {
+            BridgeLog.Error("DirectInput device scan failed.", ex);
             _devices.Items.Clear();
             _devices.Items.Add($"Device scan failed: {ex.Message}");
         }
@@ -333,7 +343,15 @@ internal sealed class BridgeMainForm : Form
     private void UpdateStatus()
     {
         var bridgeReady = _bridgeServer.IsListening;
-        SetStatus(_bridgeStatus, bridgeReady, bridgeReady ? $"Ready  ws://127.0.0.1:{_config.Port}" : "Starting...");
+        var startupError = _bridgeStartupError;
+        SetStatus(
+            _bridgeStatus,
+            bridgeReady,
+            bridgeReady
+                ? $"Ready  ws://127.0.0.1:{_config.Port}"
+                : string.IsNullOrWhiteSpace(startupError)
+                    ? "Starting..."
+                    : $"Failed: {startupError}");
         SetStatus(_viewerStatus, _bridgeServer.ActiveClientCount > 0,
             _bridgeServer.ActiveClientCount > 0 ? $"Connected ({_bridgeServer.ActiveClientCount})" : "Waiting for Viewer");
 

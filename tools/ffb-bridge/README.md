@@ -126,3 +126,7 @@ http://192.168.11.104:8090
 ```
 
 空行と `#` から始まる行は無視する。`*` や LAN 全体を許可する設定は使わない。
+
+配布 ZIP には GitHub Pages の Relay Pilot 用として、`https://fumimatsu.github.io` を
+あらかじめ入れた `allowed-origins.txt` を同梱する。WebSocket の Origin では URL のパスを
+区別できないため、この許可は同じ host 配下のページ全体に適用される。不要な場合は該当行を削除する。

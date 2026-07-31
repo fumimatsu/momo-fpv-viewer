@@ -19,6 +19,15 @@ For a Momo-served device page, keep all options in the hash:
 fpv-viewer.html#cpuCapture=1&flip=1&debug=1
 ```
 
+For the local Relay Pilot, use query parameters. The 11.5 capture URL is:
+
+```text
+http://<relay-host>:8090/pilot.html?device=11.5&cpuCapture=1
+```
+
+The current 11.5 / 11.6 baseline is M5 `BIN 30Hz`. Momo decodes binary v3 UART frames
+to v2 compact `TEL:` text before they reach this capture module.
+
 The capture panel is absent unless the flag is enabled. Connect the Viewer,
 wait for a live video track, and click `Start CPU Capture`. Stop first, then
 use the explicit `Download Capture` action. The second user gesture is
@@ -41,6 +50,9 @@ window.fpvCpuShadowCapture.downloadLastArtifacts();
 
 The browser can ask whether to allow multiple downloads. Verify that all
 three files exist before starting another run.
+
+All three artifacts are created and downloaded by the Pilot browser. The
+capture module does not upload them to Relay or save them on the vehicle.
 
 ## Recorded data
 
