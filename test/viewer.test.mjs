@@ -36,7 +36,7 @@ test('CPU shadow capture is opt-in, capture-only, and records timing contracts',
   const viewerJs = readProjectFile('viewer.js');
   const captureJs = readProjectFile('cpu-shadow-capture.js');
 
-  assert.match(html, /cpu-shadow-capture\.js\?v=20260731-cpu-shadow-capture/);
+  assert.match(html, /cpu-shadow-capture\.js\?v=20260731-reverse-gear-limits/);
   assert.match(captureJs, /const UI_FLAG = 'cpuCapture'/);
   assert.match(captureJs, /transmit_capability: false/);
   assert.match(captureJs, /requestVideoFrameCallback/);
@@ -466,7 +466,9 @@ test('RC control positions can be swapped from URL and UI', () => {
 test('Throttle back range expands by gear', () => {
   const html = readProjectFile('viewer.html');
   const js = readProjectFile('viewer.js');
-  assert.match(js, /const RC_THROTTLE_GEAR_MIN_VALUES = \[1400, 1350, 1200, 1100, 1000\]/);
+  const relayJs = readProjectFile('variants/relay/pilot.js');
+  assert.match(js, /const RC_THROTTLE_GEAR_MIN_VALUES = \[1300, 1300, 1200, 1100, 1000\]/);
+  assert.match(relayJs, /const RC_THROTTLE_GEAR_MIN_VALUES = \[1300, 1300, 1200, 1100, 1000\]/);
   assert.match(js, /const RC_THROTTLE_GEAR_MAX_VALUES = \[1600, 1650, 1800, 1900, 2000\]/);
   assert.match(html, /id="throttle" type="range" min="1000" max="2000"/);
 });

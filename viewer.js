@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VIEWER_BUILD_ID = '20260731-cpu-shadow-capture';
+  const VIEWER_BUILD_ID = '20260731-reverse-gear-limits';
   const DEFAULT_HOST = '192.168.11.3:8080';
   const RECONNECT_BASE_DELAY_MS = 500;
   const RECONNECT_MAX_DELAY_MS = 5000;
@@ -20,7 +20,7 @@
   const RC_BRAKE_VALUE = getNumberParam('rcBrakeValue', 1300);
   const RC_BRAKE_DURATION_MS = getNumberParam('rcBrakeMs', 1000);
   const RC_BRAKE_THRESHOLD = getNumberParam('rcBrakeThreshold', 1700);
-  const RC_THROTTLE_GEAR_MIN_VALUES = [1400, 1350, 1200, 1100, 1000];
+  const RC_THROTTLE_GEAR_MIN_VALUES = [1300, 1300, 1200, 1100, 1000];
   const RC_THROTTLE_GEAR_MAX_VALUES = [1600, 1650, 1800, 1900, 2000];
   const RC_INITIAL_GEAR = Math.max(1, Math.min(5, getIntegerParam('rcGear', 1)));
   const RC_STEERING_NEUTRAL_DEADBAND_US = getNumberParamAllowZero('rcSteeringNeutralDeadband', 10);
