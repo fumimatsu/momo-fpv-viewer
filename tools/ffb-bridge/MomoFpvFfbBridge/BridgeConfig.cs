@@ -15,7 +15,8 @@ internal sealed record BridgeConfig(
         // Bridge は 1.0 を基準にする。実際のセンタリング強度は Viewer が調整し、
         // 必要な場合だけ起動引数で Bridge 側に明示上限を設ける。
         var maxOutput = 1.0;
-        var backend = "auto";
+        // この配布 GUI は R3 実走用で使う。auto は別デバイスの調査時だけ明示指定する。
+        var backend = "moza-directinput";
         var allowedOrigins = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         for (var i = 0; i < args.Length; i++)

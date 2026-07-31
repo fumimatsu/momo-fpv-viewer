@@ -423,6 +423,24 @@ test('Audio and microphone controls can be fully hidden', () => {
   assert.match(js, /setElementHidden\(btnM5Audio, hidden\)/);
 });
 
+test('Relay Pilot forwards bounded directional telemetry torque to the FFB Bridge', () => {
+  const relayJs = readProjectFile('variants/relay/pilot.js');
+  assert.match(relayJs, /const FFB_TELEMETRY_CORNER_TORQUE/);
+  assert.match(relayJs, /const FFB_IMPACT_TORQUE/);
+  assert.match(relayJs, /function getTelemetryFfbTorque\(/);
+  assert.match(relayJs, /telemetryTorque,/);
+  assert.match(relayJs, /FFB_TELEMETRY_TORQUE_MAX/);
+});
+
+test('Relay Pilot sends event-level impact pulses to the FFB Bridge', () => {
+  const relayJs = readProjectFile('variants/relay/pilot.js');
+  const bridgeJs = readProjectFile('variants/relay/ffb-bridge.js');
+  assert.match(relayJs, /function getImpactPulseRequest\(/);
+  assert.match(relayJs, /kind: profile\.pulseKind === 'curb'/);
+  assert.match(relayJs, /ffbClient\.triggerImpactPulse\(pulse\)/);
+  assert.match(bridgeJs, /type: 'impactPulse'/);
+});
+
 test('RC control positions can be swapped from URL and UI', () => {
   const html = readProjectFile('viewer.html');
   const js = readProjectFile('viewer.js');
@@ -519,18 +537,19 @@ test('FFB presets are configured from the input setup and selectable in the View
   assert.match(gamepadJs, /relayPilotTarget \? relayPilotPath/);
   assert.match(bridgeClient, /deviceCapabilities/);
   assert.match(relayJs, /function updateFfbSpeedProxy\(\)/);
-  assert.match(relayJs, /function updateFfbFrontLoad\(motion, speedProxy\)/);
-  assert.match(relayJs, /deriveFfbLongitudinalLoad/);
-  assert.match(relayJs, /frontLoadFriction/);
-  assert.match(relayJs, /frontLoadDamper/);
-  assert.match(relayJs, /frontLoad: ffbFrontLoad/);
-  assert.match(relayJs, /brakeIntent: getFfbBrakeIntent\(\)/);
+  assert.match(relayJs, /function getImpactFfbBoost\(motion, nowMs\)/);
+  assert.match(relayJs, /FFB_IMPACT_DAMPER/);
+  assert.match(relayJs, /torque: Math\.max\(-FFB_TELEMETRY_TORQUE_MAX/);
+  assert.match(relayHtml, /id="motionEventHud"/);
+  assert.match(relayJs, /motionEventIndicators/);
+  assert.match(relayJs, /weak: 'Gravel'/);
   assert.match(bridgeServer, /string\.Equals\(effectMode, "baseline", StringComparison\.OrdinalIgnoreCase\)/);
   assert.match(bridgeServer, /ReadDouble\(root, "baseFriction", 0\.28\)/);
   assert.match(bridgeServer, /ReadDouble\(root, "parkingFriction", 0\.08\)/);
   assert.match(bridgeServer, /friction = ClampUnit\(baseFriction \+ parkingFriction \* lowSpeed \* lowSpeed\)/);
   assert.match(bridgeServer, /damper = ClampUnit\(baseDamper \+ speedDamper \* speed \* speed\)/);
-  assert.match(bridgeServer, /torque = Math\.Clamp\(torque, -1\.0, 1\.0\);/);
+  assert.match(bridgeServer, /var telemetryTorque = ClampSignedUnit\(ReadDouble\(root, "telemetryTorque", torque\)\);/);
+  assert.match(bridgeServer, /torque = ClampSignedUnit\(ReadDouble\(root, "torque", telemetryTorque\)\);/);
   assert.doesNotMatch(bridgeServer, /torque = 0;/);
   assert.doesNotMatch(bridgeServer, /virtualSteering/);
   assert.doesNotMatch(bridgeServer, /SmoothStep/);
@@ -541,7 +560,7 @@ test('FFB presets are configured from the input setup and selectable in the View
   assert.match(backend, /\("logitech-g29", "Logitech G29", "046D"/);
   assert.match(backend, /\("logitech-g923", "Logitech G923", "046D"/);
   assert.match(backend, /device\.GetEffects\(\)/);
-  assert.match(bridgeConfig, /var backend = "auto"/);
+  assert.match(bridgeConfig, /var backend = "moza-directinput"/);
   assert.match(bridgeLauncher, /\[string\]\$Backend = 'moza-directinput'/);
 });
 

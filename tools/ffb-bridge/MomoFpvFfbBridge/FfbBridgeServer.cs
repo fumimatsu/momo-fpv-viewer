@@ -12,14 +12,21 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
 {
     private const int Protocol = 1;
     private const string BridgeName = "Momo FPV FFB Bridge";
-    private const string BridgeVersion = "0.3.0-telemetry";
+    private const string BridgeVersion = "0.3.1-low-latency-pulse";
     private static readonly TimeSpan FfbTimeout = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan StatusMinInterval = TimeSpan.FromMilliseconds(90);
+    private static readonly TimeSpan BaselineApplyInterval = TimeSpan.FromMilliseconds(20);
 
     private readonly BridgeConfig _config;
     private readonly IFfbBackend _backend;
     private readonly TcpListener _listener;
     private readonly JsonSerializerOptions _json = new(JsonSerializerDefaults.Web);
+    private readonly object _ffbGate = new();
+    private readonly ImpactPulseMixer _impactPulse = new();
+    private BaselineFfbCommand? _baselineFfb;
+    private bool _baselineDirty;
+    private DateTimeOffset _lastFfbApplyAt = DateTimeOffset.MinValue;
+    private int _lastImpactPulseSegment = -1;
     private int _activeClientCount;
 
     public bool IsListening { get; private set; }
@@ -65,7 +72,8 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
             _backend.TickSafetyTimeout(FfbTimeout);
             try
             {
-                await Task.Delay(25, token);
+                TickFfbOutput();
+                await Task.Delay(10, token);
             }
             catch (OperationCanceledException)
             {
@@ -210,6 +218,7 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
                 }
 
                 case "releaseDevice":
+                    ClearFfbState();
                     _backend.Release();
                     await SendStatusAsync(webSocket, state, "released", force: true, token);
                     break;
@@ -219,13 +228,15 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
                     if (ReadBool(root, "emergencyStop", false))
                     {
                         // 非常停止は通常のstatus間引きを無視して、即座にゼロトルクへ落とします。
+                        ClearFfbState();
                         _backend.StopAll("emergencyStop");
                         await SendStatusAsync(webSocket, state, "emergencyStop", force: true, token);
                         break;
                     }
 
-                    // baseline は speedProxy 由来の抵抗と、Viewer が制限済みの
-                    // telemetry torque を同じ更新で合成する。
+                    // baseline は throttle 由来の speedProxy で抵抗を合成する。
+                    // telemetryTorque は Viewer が鮮度・上限を確認済みの局所トルクであり、
+                    // 衝突・旋回の体感用としてこの境界でのみ追加する。
                     var effectMode = ReadString(root, "effectMode", "constant");
                     var torque = ReadDouble(root, "torque", 0);
                     var damper = ReadDouble(root, "damper", 0);
@@ -241,29 +252,42 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
                         var lowSpeed = 1.0 - speed;
 
                         // 停車時の重さは friction、走行中の粘りは damper で作る。
-                        // 速度代理値から疑似センタリングは作らない。torque は Viewer が
-                        // 車体 telemetry から生成した方向性 effect だけを保持する。
-                        torque = Math.Clamp(torque, -1.0, 1.0);
+                        // 新しい Viewer は telemetryTorque を送る。最終 torque があれば
+                        // HP 由来の振動も含むためそちらを優先し、旧 Viewer は fallback で受ける。
+                        var telemetryTorque = ClampSignedUnit(ReadDouble(root, "telemetryTorque", torque));
+                        torque = ClampSignedUnit(ReadDouble(root, "torque", telemetryTorque));
+                        // 通常はゼロ。Viewer が衝突または旋回を検出した瞬間だけ局所トルクを渡す。
                         friction = ClampUnit(baseFriction + parkingFriction * lowSpeed * lowSpeed);
                         damper = ClampUnit(baseDamper + speedDamper * speed * speed);
                         inertia = 0;
                         effectMode = "constant";
                     }
 
-                    _backend.SetFfb(
+                    SetBaselineFfb(new BaselineFfbCommand(
                         torque,
                         ReadDouble(root, "gain", 1),
                         ReadBool(root, "enabled", false),
                         effectMode,
                         damper,
                         friction,
-                        inertia);
+                        inertia));
                     await SendStatusAsync(webSocket, state, "", force: false, token);
+                    break;
+                }
+
+                case "impactPulse":
+                {
+                    var kind = ReadString(root, "kind", "sideImpact");
+                    var strength = ClampUnit(ReadDouble(root, "strength", 0));
+                    var direction = Math.Sign(ReadDouble(root, "direction", 0));
+                    TriggerImpactPulse(kind, strength, direction);
+                    await SendStatusAsync(webSocket, state, "impactPulse", force: true, token);
                     break;
                 }
 
                 case "stopAll":
                     // ゲーム終了、接続解除、テスト停止などで呼ぶ安全停止命令です。
+                    ClearFfbState();
                     _backend.StopAll("stopAll");
                     await SendStatusAsync(webSocket, state, "stopAll", force: true, token);
                     break;
@@ -277,6 +301,83 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
                     break;
             }
         }
+    }
+
+    private void SetBaselineFfb(BaselineFfbCommand command)
+    {
+        lock (_ffbGate)
+        {
+            _baselineFfb = command;
+            _baselineDirty = true;
+            if (!command.Enabled)
+            {
+                _impactPulse.Clear();
+                _lastImpactPulseSegment = -1;
+                _baselineDirty = false;
+                // Drive Off は 20 ms の出力周期を待たず、直ちに出力を止める。
+                _backend.StopAll("ffb disabled");
+            }
+        }
+    }
+
+    private void TriggerImpactPulse(string kind, double strength, int direction)
+    {
+        if (strength <= 0) return;
+        lock (_ffbGate)
+        {
+            if (_baselineFfb is not { Enabled: true }) return;
+            _impactPulse.Trigger(kind, strength, direction, DateTimeOffset.UtcNow);
+            var sample = _impactPulse.Sample(DateTimeOffset.UtcNow);
+            // 通常 setFfb の到着待ちをせず、イベント受信時点の基準出力へ即時に加算する。
+            ApplyCompositeFfbLocked(sample.Torque);
+            _lastImpactPulseSegment = sample.Index;
+            _lastFfbApplyAt = DateTimeOffset.UtcNow;
+            _baselineDirty = false;
+        }
+    }
+
+    private void TickFfbOutput()
+    {
+        lock (_ffbGate)
+        {
+            if (_baselineFfb is not { Enabled: true }) return;
+            var now = DateTimeOffset.UtcNow;
+            var sample = _impactPulse.Sample(now);
+            var pulseChanged = sample.Index != _lastImpactPulseSegment;
+            var baselineDue = _baselineDirty && now - _lastFfbApplyAt >= BaselineApplyInterval;
+            if (!pulseChanged && !baselineDue) return;
+
+            ApplyCompositeFfbLocked(sample.Torque);
+            _lastImpactPulseSegment = sample.Index;
+            _lastFfbApplyAt = now;
+            _baselineDirty = false;
+        }
+    }
+
+    private void ClearFfbState()
+    {
+        lock (_ffbGate)
+        {
+            _baselineFfb = null;
+            _impactPulse.Clear();
+            _baselineDirty = false;
+            _lastImpactPulseSegment = -1;
+            _lastFfbApplyAt = DateTimeOffset.MinValue;
+        }
+    }
+
+    private void ApplyCompositeFfbLocked(double pulseTorque)
+    {
+        if (_baselineFfb is not { } baseline) return;
+        // impactPulse は通常の旋回トルクを置換せず加算する。最終クランプは backend 側でも行う。
+        _backend.SetFfb(
+            ClampSignedUnit((baseline.Torque * baseline.Gain) + pulseTorque),
+            1,
+            baseline.Enabled,
+            baseline.EffectMode,
+            baseline.Damper,
+            baseline.Friction,
+            baseline.Inertia);
     }
 
     private async Task SendStatusAsync(WebSocket webSocket, ClientState state, string message, bool force, CancellationToken token)
@@ -434,6 +535,69 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
     }
 
     private sealed record Handshake(string WebSocketKey, string Origin);
+
+    private sealed record BaselineFfbCommand(
+        double Torque,
+        double Gain,
+        bool Enabled,
+        string EffectMode,
+        double Damper,
+        double Friction,
+        double Inertia);
+
+    private sealed class ImpactPulseMixer
+    {
+        private PulseSegment[] _segments = [];
+        private DateTimeOffset _startedAt = DateTimeOffset.MinValue;
+
+        public void Trigger(string kind, double strength, int direction, DateTimeOffset now)
+        {
+            var sign = direction == 0 ? 1 : Math.Sign(direction);
+            var amplitude = ClampUnit(strength);
+            _segments = kind.ToLowerInvariant() switch
+            {
+                // 縁石は細かく小さい左右振動。進行方向に依存しない場合も最初の向きだけ固定する。
+                "curb" => Build(sign, amplitude, (1.00, 32), (-0.78, 32), (0.62, 32), (-0.45, 32)),
+                // 側面衝突は衝突方向へ強く振り、すぐ逆側へ少し弱く返す。
+                "sideimpact" => Build(sign, amplitude, (1.00, 72), (-0.72, 96)),
+                // 正面衝突は左右へ大きく振り、最後に小さく戻す。
+                "frontalimpact" => Build(1, amplitude, (1.00, 52), (-1.00, 62), (0.58, 58)),
+                _ => Build(sign, amplitude, (1.00, 72), (-0.72, 96)),
+            };
+            _startedAt = now;
+        }
+
+        public void Clear()
+        {
+            _segments = [];
+            _startedAt = DateTimeOffset.MinValue;
+        }
+
+        public PulseSample Sample(DateTimeOffset now)
+        {
+            if (_segments.Length == 0 || _startedAt == DateTimeOffset.MinValue) return PulseSample.Inactive;
+            var elapsedMs = (now - _startedAt).TotalMilliseconds;
+            if (elapsedMs < 0) return new PulseSample(0, _segments[0].Torque);
+            var cursor = 0.0;
+            for (var index = 0; index < _segments.Length; index++)
+            {
+                var segment = _segments[index];
+                cursor += segment.DurationMs;
+                if (elapsedMs < cursor) return new PulseSample(index, segment.Torque);
+            }
+            return PulseSample.Inactive;
+        }
+
+        private static PulseSegment[] Build(int sign, double amplitude, params (double Scale, int DurationMs)[] definition) =>
+            definition.Select(item => new PulseSegment(sign * amplitude * item.Scale, item.DurationMs)).ToArray();
+
+        public sealed record PulseSample(int Index, double Torque)
+        {
+            public static readonly PulseSample Inactive = new(-1, 0);
+        }
+
+        private sealed record PulseSegment(double Torque, int DurationMs);
+    }
 
     private sealed class ClientState
     {

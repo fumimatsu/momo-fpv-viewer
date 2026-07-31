@@ -42,12 +42,23 @@ Viewer が Bridge へ接続した後、ブラウザコンソールで
 - 出力は Viewer の `Drive On` 中だけで、`Drive Off` では即座に `stopAll` を送る。
 - Viewer はスロットルとブレーキから平滑化した `speedProxy` を送る。これは実車速ではない。
 - Bridge は低速ほど `Friction`、speedProxy が高いほど `Damper` を加算する。speedProxy から方向性 torque は生成しないが、Viewer が車体 telemetry から生成して制限した torque は保持する。
+- Bridge は低速ほど `Friction`、speedProxy が高いほど `Damper` を加算する。Viewer の横加速度から得る弱いコーナー抵抗も baseline に加算する。speedProxy から方向性 torque は生成しないが、Viewer が車体 telemetry から生成して制限した torque は保持する。
 - Relay Pilot は減速時の前荷重を `Friction` と `Damper` の増加として渡す。方向性 torque にはしない。
 - 250 ms 間 Viewer から更新が来なければ Bridge が constant torque と condition effect の両方を停止する。
 - Viewer の Stop、切断、ページ離脱、Bridge 終了はすべて `stopAll` を送る。
 - Input 設定画面では、基礎/低速 friction と基礎/速度 damper をハンコンのプロファイルごとに調整できる。
 
 R3 を固定し、MOZA Pit House の最大トルクは運用上の安全上限に設定する。FFB は Input 設定で有効にしただけでは出ず、Momo DataChannel 接続後の Viewer `Drive On` 中にだけ出る。初回は停止状態、低速、スロットル入力時の順で抵抗変化を確認する。
+
+## IMU イベントパルス
+
+Viewer は IMU のイベントを受けた同じ処理で `impactPulse` を Bridge へ送る。Bridge が通常 FFB と独立して時間管理するため、20 ms の通常更新で衝撃が上書きされない。
+
+- `weak`: 縁石として小さい左右交互 4 パルス。
+- `strong` / `severe` かつ横方向あり: 側面衝突として衝突方向の強い 1 パルス後に、逆方向へ弱い戻し。
+- `strong` / `severe` かつ横方向なし: 正面衝突として左右交互 3 パルス。
+
+Bridge はイベント受信時に最初のパルスを直ちに DirectInput へ適用する。パルス中も安全停止、Drive Off、WebSocket 切断時は通常どおり出力を止める。
 
 ## 起動
 
@@ -68,6 +79,10 @@ Relayが別PCにある場合だけ、そのPCのIPまたはホスト名とポー
 両方が必要であり、`host` はRelayサーバー、`device` はRelay内の車体sourceを表す。
 これは Viewer の接続先だけを決める。FFB Bridge は常に同じPCの `127.0.0.1:24725` にだけ bind し、
 Relayへポートを開けたり、ホイールをネットワーク公開したりしない。
+
+Bridge は `Relay endpoint` 欄に指定された Origin を起動中に許可する。手動で Viewer を開く場合も、
+ブラウザの URL の Origin とこの欄を完全に一致させる。例えば Viewer が
+`http://192.168.11.107:8090/pilot.html` なら、Relay endpoint は `192.168.11.107:8090` にする。
 
 - `Input / FFB setup`: Relay配信の `gamepad.html?viewer=relay-pilot&relayPilotPath=flat&device=<device>` を開き、ハンコンの割り当てと FFB ON/OFF を設定する。
 - `Open Viewer`: Relay配信の `pilot.html?device=<device>` を直接開く。設定ページと同じRelay originの保存済みハンコンprofileを使う。
@@ -93,6 +108,7 @@ Relay Variant では、Relay Viewer と gamepad 設定画面をこの Viewer 正
 ## Bridge オプション
 
 - `--backend moza-directinput`: MOZA R3 向けの符号付き constant magnitude 出力。既定。
+- `--backend directinput`: G923 / G29 / T300 など、方向 vector 方式の DirectInput 出力。R3 以外で動作確認する時に指定する。
 - `--max-output 0.02..1.0`: Bridge 側の絶対上限。既定は `1.00`。強すぎる環境だけ、起動時に明示して下げる。
 
 Pit House の機械的センタリング、ダンパー、フリクションは Phase 1 ではオフにする。Bridge は Windows AutoCenter を無効化し、基礎抵抗を唯一のソフトウェア制御層にする。横G、スリップ、IMU路面感、衝撃は Bridge の次段階の effect layer に追加する。

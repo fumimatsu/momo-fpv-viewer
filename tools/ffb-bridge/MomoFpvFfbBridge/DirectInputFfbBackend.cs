@@ -182,13 +182,16 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
                 return new AcquireResult(false, requestedDeviceId ?? "", false, "DirectInput FFB device not found.", _profile, _capabilities);
             }
 
+            var stage = "create device";
             try
             {
                 // 選択されたDirectInputデバイスを開き、FFBを送れる状態にします。
                 // Exclusiveで取れない場合はNonExclusiveに落として、他アプリとの衝突を避けます。
                 var device = _directInput.CreateDevice(selected.InstanceGuid);
+                stage = "set data format";
                 device.SetDataFormat<RawJoystickState>().CheckError();
 
+                stage = "set cooperative level";
                 var level = CooperativeLevel.Background | (preferExclusive ? CooperativeLevel.Exclusive : CooperativeLevel.NonExclusive);
                 var result = device.SetCooperativeLevel(_window.Handle, level);
                 if (result.Failure && preferExclusive)
@@ -198,6 +201,7 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
                 }
                 result.CheckError();
 
+                stage = "acquire device";
                 Try(() => device.Properties.AutoCenter = false);
                 Try(() => device.Properties.ForceFeedbackGain = DirectInputMaxMagnitude);
                 device.Acquire().CheckError();
@@ -213,13 +217,19 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
                 var productId = ToHex4(device.Properties.ProductId);
                 _profile = FfbDeviceCompatibility.Resolve(name, vendorId, productId);
                 _signMode = ResolveSignMode(_profile);
+                stage = "enumerate effects";
                 _capabilities = ReadEffectCapabilities(device);
                 // どの軸にFFBを出すかを決めます。基本はステアリングのX軸です。
+                stage = "select FFB axis";
                 SelectForceFeedbackAxisLocked(device);
                 _effectMode = "constant";
                 // 常時更新できるよう、長時間のconstant force effectを開始しておきます。
+                stage = "create constant force effect";
                 _constantForce = CreateForceEffect(_effectMode, 0);
+                stage = "start constant force effect";
                 _constantForce.Start(-1);
+                stage = "zero constant force effect";
+                SetForceLocked(0, _effectMode);
                 _capabilities = _capabilities with { ConstantForce = true };
                 _damperUnavailable = false;
                 _frictionUnavailable = false;
@@ -237,7 +247,7 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
                 var profile = _profile;
                 var capabilities = _capabilities;
                 ReleaseLocked(stopAll: true);
-                return new AcquireResult(false, selected.InstanceGuid.ToString("D"), false, ex.Message, profile, capabilities);
+                return new AcquireResult(false, selected.InstanceGuid.ToString("D"), false, $"{stage}: {ex.Message}", profile, capabilities);
             }
         }
     }

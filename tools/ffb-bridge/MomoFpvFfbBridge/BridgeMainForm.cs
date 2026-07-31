@@ -19,6 +19,17 @@ internal sealed class BridgeMainForm : Form
     private readonly TextBox _relayEndpoint = new() { Dock = DockStyle.Fill };
     private readonly TextBox _relayDevice = new() { Dock = DockStyle.Fill };
     private readonly Label _viewerUrl = new() { AutoSize = true, ForeColor = Color.FromArgb(90, 110, 125) };
+    private readonly NumericUpDown _testStrength = new()
+    {
+        Minimum = 0.05M,
+        Maximum = 1.00M,
+        DecimalPlaces = 2,
+        Increment = 0.05M,
+        Value = 0.45M,
+        Width = 80,
+    };
+    private readonly Label _testStatus = new() { AutoSize = true, ForeColor = Color.FromArgb(90, 110, 125), Text = "Viewer 未接続時だけ手動テストできます。" };
+    private CancellationTokenSource? _testCts;
     private Task? _bridgeTask;
 
     public BridgeMainForm(BridgeConfig config, IFfbBackend backend, FfbBridgeServer bridgeServer)
@@ -29,8 +40,8 @@ internal sealed class BridgeMainForm : Form
 
         Text = "Momo FPV FFB Bridge";
         StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(710, 560);
-        Size = new Size(760, 630);
+        MinimumSize = new Size(710, 690);
+        Size = new Size(760, 750);
         Font = new Font("Segoe UI", 9F);
         BackColor = Color.FromArgb(245, 248, 250);
 
@@ -52,12 +63,13 @@ internal sealed class BridgeMainForm : Form
             Dock = DockStyle.Fill,
             Padding = new Padding(22),
             ColumnCount = 1,
-            RowCount = 4,
+            RowCount = 5,
             BackColor = BackColor,
         };
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
         var title = new Label
@@ -71,7 +83,8 @@ internal sealed class BridgeMainForm : Form
         root.Controls.Add(title, 0, 0);
         root.Controls.Add(BuildConnectionPanel(), 0, 1);
         root.Controls.Add(BuildDevicePanel(), 0, 2);
-        root.Controls.Add(BuildViewerPanel(), 0, 3);
+        root.Controls.Add(BuildTesterPanel(), 0, 3);
+        root.Controls.Add(BuildViewerPanel(), 0, 4);
         return root;
     }
 
@@ -154,6 +167,129 @@ internal sealed class BridgeMainForm : Form
         return group;
     }
 
+    private Control BuildTesterPanel()
+    {
+        var group = CreateGroup("DirectInput manual tester");
+        group.Margin = new Padding(0, 0, 0, 14);
+        var table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3, Padding = new Padding(12), AutoSize = true };
+        table.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        table.Controls.Add(new Label { Text = "Strength", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 0);
+        table.Controls.Add(_testStrength, 1, 0);
+
+        var controls = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight };
+        var left = new Button { Text = "Hold left 0.5 s", AutoSize = true };
+        left.Click += async (_, _) => await StartManualTestAsync(token => RunOutputAsync(-TestStrength(), 0, 0, TimeSpan.FromMilliseconds(500), token));
+        var right = new Button { Text = "Hold right 0.5 s", AutoSize = true };
+        right.Click += async (_, _) => await StartManualTestAsync(token => RunOutputAsync(TestStrength(), 0, 0, TimeSpan.FromMilliseconds(500), token));
+        var resistance = new Button { Text = "Resistance 3 s", AutoSize = true };
+        resistance.Click += async (_, _) => await StartManualTestAsync(token => RunOutputAsync(0, TestStrength(), TestStrength(), TimeSpan.FromSeconds(3), token));
+        var impact = new Button { Text = "Impact burst", AutoSize = true };
+        impact.Click += async (_, _) => await StartManualTestAsync(RunImpactBurstAsync);
+        var stop = new Button { Text = "Stop FFB", AutoSize = true };
+        stop.Click += (_, _) => StopManualTest("desktop-ui manual stop");
+        controls.Controls.Add(left);
+        controls.Controls.Add(right);
+        controls.Controls.Add(resistance);
+        controls.Controls.Add(impact);
+        controls.Controls.Add(stop);
+        table.Controls.Add(controls, 0, 1);
+        table.SetColumnSpan(controls, 2);
+        table.Controls.Add(_testStatus, 0, 2);
+        table.SetColumnSpan(_testStatus, 2);
+        group.Controls.Add(table);
+        return group;
+    }
+
+    private double TestStrength() => (double)_testStrength.Value;
+
+    private async Task StartManualTestAsync(Func<CancellationToken, Task> test)
+    {
+        if (_bridgeServer.ActiveClientCount > 0)
+        {
+            _testStatus.ForeColor = Color.Firebrick;
+            _testStatus.Text = "Viewer 接続中は手動テストできません。Drive Off と Viewer 切断後に実行してください。";
+            return;
+        }
+
+        if (!EnsureManualTestDevice()) return;
+        StopManualTest("replace manual test");
+        var testCts = new CancellationTokenSource();
+        _testCts = testCts;
+        var token = testCts.Token;
+        _testStatus.ForeColor = Color.FromArgb(0, 110, 86);
+        _testStatus.Text = "Manual test running. Stop FFB または 250 ms 無更新で出力を停止します。";
+        try
+        {
+            await test(token);
+            if (!token.IsCancellationRequested) _testStatus.Text = "Manual test finished. Output stopped.";
+        }
+        catch (OperationCanceledException)
+        {
+            _testStatus.Text = "Manual test stopped.";
+        }
+        catch (Exception ex)
+        {
+            _testStatus.ForeColor = Color.Firebrick;
+            _testStatus.Text = $"Manual test failed: {ex.Message}";
+        }
+        finally
+        {
+            _backend.StopAll("manual test completed");
+            if (ReferenceEquals(_testCts, testCts))
+            {
+                _testCts = null;
+            }
+            testCts.Dispose();
+            UpdateStatus();
+        }
+    }
+
+    private bool EnsureManualTestDevice()
+    {
+        var current = _backend.Snapshot();
+        if (current.Acquired && !current.DeviceLost) return true;
+        var device = _backend.ListDevices().FirstOrDefault(candidate => candidate.IsFfbCapable && candidate.Capabilities.ConstantForce);
+        if (device is null)
+        {
+            _testStatus.ForeColor = Color.Firebrick;
+            _testStatus.Text = "Constant Force 対応の DirectInput デバイスが見つかりません。";
+            return false;
+        }
+        var result = _backend.Acquire(device.Id, preferExclusive: true);
+        if (result.Ok) return true;
+        _testStatus.ForeColor = Color.Firebrick;
+        _testStatus.Text = $"Device acquire failed: {result.Message}";
+        return false;
+    }
+
+    private async Task RunImpactBurstAsync(CancellationToken token)
+    {
+        var strength = TestStrength();
+        await RunOutputAsync(-strength, 0, 0, TimeSpan.FromMilliseconds(80), token);
+        await RunOutputAsync(strength * 0.70, 0, 0, TimeSpan.FromMilliseconds(110), token);
+        await RunOutputAsync(-strength * 0.40, 0, 0, TimeSpan.FromMilliseconds(90), token);
+    }
+
+    private async Task RunOutputAsync(double torque, double damper, double friction, TimeSpan duration, CancellationToken token)
+    {
+        var stopAt = DateTimeOffset.UtcNow + duration;
+        while (DateTimeOffset.UtcNow < stopAt)
+        {
+            token.ThrowIfCancellationRequested();
+            var status = _backend.SetFfb(torque, 1, true, "constant", damper, friction, 0);
+            if (status.DeviceLost) throw new InvalidOperationException(status.Message);
+            await Task.Delay(40, token);
+        }
+    }
+
+    private void StopManualTest(string message)
+    {
+        _testCts?.Cancel();
+        _backend.StopAll(message);
+        UpdateStatus();
+    }
+
     private void OnShown(object? sender, EventArgs e)
     {
         UpdateRelayUrlPreview();
@@ -209,7 +345,7 @@ internal sealed class BridgeMainForm : Form
 
         var active = status.LastFriction > 0.001 || status.LastDamper > 0.001 || Math.Abs(status.LastTorque) > 0.001;
         var effectText = active
-            ? $"Active  friction {status.LastFriction:0.00}, damper {status.LastDamper:0.00}"
+            ? $"Active  torque {status.LastTorque:+0.00;-0.00;0.00}, friction {status.LastFriction:0.00}, damper {status.LastDamper:0.00}"
             : "No FFB output";
         SetStatus(_effectStatus, active && !status.DeviceLost, effectText);
     }
@@ -260,6 +396,9 @@ internal sealed class BridgeMainForm : Form
     {
         if (TryGetRelayUri(out var relayUri))
         {
+            // 手動で Pilot URL を開く運用でも、画面に指定した Relay Origin は
+            // Bridge 起動中に許可済みにする。Open Viewer ボタンへの依存をなくす。
+            _config.AllowOrigin(relayUri.GetLeftPart(UriPartial.Authority));
             _viewerUrl.Text = $"Relay Pilot: {relayUri.GetLeftPart(UriPartial.Authority)}/pilot.html";
             _viewerUrl.ForeColor = Color.FromArgb(90, 110, 125);
             return;
@@ -272,6 +411,7 @@ internal sealed class BridgeMainForm : Form
     private void OnFormClosing(object? sender, FormClosingEventArgs e)
     {
         _statusTimer.Stop();
+        StopManualTest("desktop-ui exit");
         _backend.StopAll("desktop-ui exit");
         _bridgeCts.Cancel();
         _bridgeServer.DisposeAsync().AsTask().GetAwaiter().GetResult();
