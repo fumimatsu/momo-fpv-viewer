@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VIEWER_BUILD_ID = '20260726-m5-audio';
+  const VIEWER_BUILD_ID = '20260731-cpu-shadow-capture';
   const DEFAULT_HOST = '192.168.11.3:8080';
   const RECONNECT_BASE_DELAY_MS = 500;
   const RECONNECT_MAX_DELAY_MS = 5000;
@@ -251,6 +251,7 @@
   let connectedAt = 0;
   let visibleSince = performance.now();
   let reconnectCount = 0;
+  let transportGeneration = 0;
   let lastEvent = 'start';
   let lastReconnectAt = 0;
   let lastReconnectReason = '';
@@ -277,6 +278,7 @@
   let lastJitterBufferEmittedCount = 0;
   let lastTotalProcessingDelay = 0;
   let lastFramesDecoded = 0;
+  let lastWebRtcStatsSnapshot = null;
   let decodedFrameHistory = [];
   let lastMicInputPeak = 0;
   let lastMicTxSampleAt = 0;
@@ -713,9 +715,14 @@
   }
 
   function setVideoFlip(enabled) {
+    if (window.fpvCpuShadowCapture?.running === true) {
+      console.warn('Video Flip is locked during CPU capture');
+      return false;
+    }
     document.body.classList.toggle('flip-video', enabled);
     btnFlip.textContent = enabled ? 'Flip On' : 'Flip';
     btnFlip.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+    return true;
   }
 
   function toggleVideoFlip() {
@@ -723,9 +730,14 @@
   }
 
   function setVideoMirror(enabled) {
+    if (window.fpvCpuShadowCapture?.running === true) {
+      console.warn('Video Mirror is locked during CPU capture');
+      return false;
+    }
     document.body.classList.toggle('mirror-video', enabled);
     btnMirror.textContent = enabled ? 'Mirror On' : 'Mirror';
     btnMirror.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+    return true;
   }
 
   function toggleVideoMirror() {
@@ -2323,6 +2335,45 @@
     console.info('[FPV]', entry);
   }
 
+  function dispatchShadowCaptureEvent(type, detail = {}) {
+    if (window.fpvCpuShadowCapture?.running !== true) {
+      return;
+    }
+    window.dispatchEvent(new CustomEvent(`fpv-shadow-${type}`, {
+      detail,
+    }));
+  }
+
+  function snapshotDataChannelForCapture(channel) {
+    if (!channel) {
+      return {
+        label: null,
+        ready_state: 'closed',
+        ordered: null,
+        max_retransmits: null,
+        protocol: null,
+        id: null,
+        transport_generation: null,
+      };
+    }
+    return {
+      label: channel.label || null,
+      ready_state: channel.readyState || null,
+      ordered: channel.ordered === true,
+      max_retransmits: channel.maxRetransmits ?? null,
+      protocol: channel.protocol || null,
+      id: channel.id ?? null,
+      transport_generation: channel.fpvTransportGeneration ?? null,
+    };
+  }
+
+  function stopShadowCaptureForTransport(reason) {
+    const pending = window.fpvCpuShadowCapture?.requestStop?.(reason);
+    pending?.catch?.((error) => {
+      recordEvent('CPU capture stop failed', error?.message || String(error));
+    });
+  }
+
   function formatDuration(seconds) {
     const totalSeconds = Math.max(0, Math.floor(seconds));
     const minutes = Math.floor(totalSeconds / 60);
@@ -2549,12 +2600,57 @@
   }
 
   function sendCommand(command) {
+    const captureRunning = window.fpvCpuShadowCapture?.running === true;
+    const sentAtMs = captureRunning ? performance.now() : null;
     if (!dataChannel || dataChannel.readyState !== 'open') {
+      if (captureRunning) {
+        dispatchShadowCaptureEvent('command', {
+          command,
+          line: `${command}\n`,
+          sent: false,
+          local_send_accepted: false,
+          remote_applied: null,
+          sent_at_ms: sentAtMs,
+          drive_enabled: rcDriveEnabled,
+          reason: 'datachannel_not_open',
+          data_channel: snapshotDataChannelForCapture(dataChannel),
+        });
+      }
       return false;
     }
-    dataChannel.send(`${command}\n`);
-    lastRcCommand = command;
-    return true;
+    try {
+      dataChannel.send(`${command}\n`);
+      lastRcCommand = command;
+      if (captureRunning) {
+        dispatchShadowCaptureEvent('command', {
+          command,
+          line: `${command}\n`,
+          sent: true,
+          local_send_accepted: true,
+          remote_applied: null,
+          sent_at_ms: sentAtMs,
+          drive_enabled: rcDriveEnabled,
+          data_channel: snapshotDataChannelForCapture(dataChannel),
+        });
+      }
+      return true;
+    } catch (error) {
+      if (captureRunning) {
+        dispatchShadowCaptureEvent('command', {
+          command,
+          line: `${command}\n`,
+          sent: false,
+          local_send_accepted: false,
+          remote_applied: null,
+          sent_at_ms: sentAtMs,
+          drive_enabled: rcDriveEnabled,
+          reason: 'send_failed',
+          error: error.message || String(error),
+          data_channel: snapshotDataChannelForCapture(dataChannel),
+        });
+      }
+      return false;
+    }
   }
 
   function getRcStatus() {
@@ -2701,13 +2797,28 @@
   }
 
   function applyTelemetry(message, source = 'datachannel') {
+    const arrivalMs = performance.now();
     if (!telemetryTracker) {
       lastTelemetry = message;
       updateTelemetryUi();
+      if (window.fpvCpuShadowCapture?.running === true) {
+        dispatchShadowCaptureEvent('telemetry', {
+          arrival_ms: arrivalMs,
+          source,
+          status: 'legacy_module_missing',
+          accepted: false,
+          raw_message: typeof message === 'string' ? message : null,
+          payload: null,
+          transport_generation: transportGeneration,
+          data_channel: source === 'datachannel'
+            ? snapshotDataChannelForCapture(dataChannel)
+            : null,
+        });
+      }
       return { status: 'legacy_module_missing', accepted: false };
     }
 
-    const result = telemetryTracker.ingest(message, performance.now());
+    const result = telemetryTracker.ingest(message, arrivalMs);
     result.source = source;
     if (result.status === 'legacy') {
       lastTelemetry = message;
@@ -2723,6 +2834,22 @@
       if (deviceStatus) {
         setText(deviceState, deviceStatus);
       }
+    }
+    if (window.fpvCpuShadowCapture?.running === true) {
+      dispatchShadowCaptureEvent('telemetry', {
+        arrival_ms: arrivalMs,
+        source,
+        status: result.status,
+        accepted: result.accepted === true,
+        sequence_status: result.sequenceStatus || null,
+        reason: result.reason || null,
+        raw_message: typeof message === 'string' ? message : null,
+        payload: result.payload || null,
+        transport_generation: transportGeneration,
+        data_channel: source === 'datachannel'
+          ? snapshotDataChannelForCapture(dataChannel)
+          : null,
+      });
     }
     return result;
   }
@@ -3000,6 +3127,7 @@
   }
 
   function setDriveEnabled(enabled) {
+    const previous = rcDriveEnabled;
     rcDriveEnabled = enabled;
     btnDrive.textContent = enabled ? 'Drive On' : 'Drive Off';
     btnDrive.setAttribute('aria-pressed', enabled ? 'true' : 'false');
@@ -3022,6 +3150,14 @@
     }
     updateRcUi();
     sendFfbSteering();
+    if (window.fpvCpuShadowCapture?.running === true) {
+      dispatchShadowCaptureEvent('drive', {
+        previous_enabled: previous,
+        enabled: rcDriveEnabled,
+        changed_at_ms: performance.now(),
+        command: lastRcCommand,
+      });
+    }
   }
 
   function toggleDrive() {
@@ -3535,6 +3671,9 @@
 
   function closeTransport(options = {}) {
     const sendSignalingClose = options.sendSignalingClose === true;
+    stopShadowCaptureForTransport(
+      options.captureReason || 'transport_closed',
+    );
     const currentWs = ws;
     const currentDataChannel = dataChannel;
     const currentPeerConnection = peerConnection;
@@ -3601,6 +3740,7 @@
     lastJitterBufferEmittedCount = 0;
     lastTotalProcessingDelay = 0;
     lastFramesDecoded = 0;
+    lastWebRtcStatsSnapshot = null;
     lastDecodedFrameAt = 0;
     decodedFrameHistory = [];
     remoteVideo.pause();
@@ -3618,7 +3758,10 @@
     setDriveEnabled(false);
     micEnabled = false;
     stopLocalMic();
-    closeTransport({ sendSignalingClose: true });
+    closeTransport({
+      sendSignalingClose: true,
+      captureReason: 'manual_disconnect',
+    });
     releaseRoomLease();
   }
 
@@ -3631,7 +3774,10 @@
     setDriveEnabled(false);
     micEnabled = false;
     stopLocalMic();
-    closeTransport({ sendSignalingClose: true });
+    closeTransport({
+      sendSignalingClose: true,
+      captureReason: 'page_hidden',
+    });
     releaseRoomLease({ beacon: true });
   }
 
@@ -3675,7 +3821,10 @@
     reconnectAfter = performance.now() + delay;
     console.warn('Scheduling reconnect:', reason, `${delay}ms`);
     recordEvent('reconnect', `${reason} ${delay}ms ${getTransportSummary()}`);
-    closeTransport({ sendSignalingClose: true });
+    closeTransport({
+      sendSignalingClose: true,
+      captureReason: 'transport_reconnect',
+    });
     updateUiState();
     reconnectTimer = window.setTimeout(() => {
       reconnectTimer = null;
@@ -4095,6 +4244,8 @@
   async function createPeerConnection(options = {}) {
     candidates = [];
     hasReceivedSdp = false;
+    transportGeneration += 1;
+    const generation = transportGeneration;
 
     const rtcConfig = {
       iceServers: resolveIceServers(options.iceServers),
@@ -4104,6 +4255,7 @@
     }
     const peer = new RTCPeerConnection(rtcConfig);
     const attachDataChannel = (channel, source = 'remote') => {
+      channel.fpvTransportGeneration = generation;
       if (
         source === 'remote' &&
         channel.label === 'serial' &&
@@ -4357,6 +4509,30 @@
     const framesDecoded = Number.isFinite(inboundVideo.framesDecoded)
       ? inboundVideo.framesDecoded
       : null;
+    lastWebRtcStatsSnapshot = {
+      sampled_at_performance_ms: now,
+      inbound_video: {
+        bytes_received: bytesReceived,
+        packets_received: packetsReceived,
+        packets_lost: packetsLost,
+        frames_decoded: framesDecoded,
+        frames_dropped: framesDropped,
+        jitter_s: Number.isFinite(inboundVideo.jitter)
+          ? inboundVideo.jitter
+          : null,
+        jitter_buffer_delay_s: jitterBufferDelay,
+        jitter_buffer_emitted_count: jitterBufferEmittedCount,
+        total_processing_delay_s: totalProcessingDelay,
+      },
+      selected_candidate_pair: selectedPair
+        ? {
+          current_round_trip_time_s: Number.isFinite(selectedPair.currentRoundTripTime)
+            ? selectedPair.currentRoundTripTime
+            : null,
+        }
+        : null,
+      note: 'raw cumulative stats; not glass-to-glass latency',
+    };
 
     if (lastStatsSampleAt === 0) {
       lastStatsSampleAt = now;
@@ -4891,11 +5067,29 @@
     }),
     injectTelemetry: (message) => applyTelemetry(message, 'manual'),
     emitMockTelemetryImpact,
+    getCaptureSnapshot: () => ({
+      build_id: VIEWER_BUILD_ID,
+      variant: 'direct',
+      drive_enabled: rcDriveEnabled,
+      last_command: lastRcCommand,
+      command_line: `${lastRcCommand}\n`,
+      data_channel_state: dataChannel?.readyState || 'closed',
+      transport_generation: transportGeneration,
+      command_channel: snapshotDataChannelForCapture(dataChannel),
+      endpoint: endpointInput.value,
+      source_identity: {
+        signaling_mode: SIGNALING_MODE,
+        relay_device: null,
+        room_id: AYAME_ROOM_ID || null,
+        race_car_id: RACE_CAR_ID || null,
+      },
+    }),
     getDiagnostics: () => ({
       reconnectCount,
       lastReconnectAt,
       lastReconnectReason,
       lastWsClose,
+      webRtcStats: lastWebRtcStatsSnapshot,
       eventCounters: { ...eventCounters },
       eventLog: eventLog.slice(),
       videoFreezeTimeoutMs: VIDEO_FREEZE_TIMEOUT_MS,

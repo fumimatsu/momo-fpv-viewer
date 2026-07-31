@@ -12,7 +12,7 @@ function readProjectFile(path) {
 }
 
 test('viewer JavaScript files parse', () => {
-  for (const file of ['viewer.js', 'telemetry.js', 'gamepad-profile.js', 'ffb-bridge.js', 'gamepad.js', 'monitor.js', 'variants/relay/pilot.js', 'variants/relay/ffb-bridge.js']) {
+  for (const file of ['viewer.js', 'telemetry.js', 'gamepad-profile.js', 'ffb-bridge.js', 'cpu-shadow-capture.js', 'gamepad.js', 'monitor.js', 'variants/relay/pilot.js', 'variants/relay/ffb-bridge.js']) {
     execFileSync(process.execPath, ['--check', join(rootDir, file)], {
       stdio: 'pipe',
     });
@@ -23,9 +23,68 @@ test('Relay Pilot sends Drive state on a reliable dedicated channel', () => {
   const relayJs = readProjectFile('variants/relay/pilot.js');
   assert.match(relayJs, /let driveChannel = null/);
   assert.match(relayJs, /function sendDriveState\(\)/);
-  assert.match(relayJs, /driveChannel\.send\(rcDriveEnabled \? 'DRIVE:1' : 'DRIVE:0'\)/);
+  assert.match(relayJs, /driveChannel\.send\(line\)/);
   assert.match(relayJs, /peer\.createDataChannel\('momo-drive', \{\s*ordered: true,/);
   assert.match(relayJs, /sendDriveState\(\);\s*\n\s*if \(enabled\)/);
+  assert.match(relayJs, /local_send_accepted: localSendAccepted/);
+  assert.match(relayJs, /remote_applied: null/);
+  assert.match(relayJs, /drive_channel: snapshotDataChannelForCapture\(driveChannel\)/);
+});
+
+test('CPU shadow capture is opt-in, capture-only, and records timing contracts', () => {
+  const html = readProjectFile('viewer.html');
+  const viewerJs = readProjectFile('viewer.js');
+  const captureJs = readProjectFile('cpu-shadow-capture.js');
+
+  assert.match(html, /cpu-shadow-capture\.js\?v=20260731-cpu-shadow-capture/);
+  assert.match(captureJs, /const UI_FLAG = 'cpuCapture'/);
+  assert.match(captureJs, /transmit_capability: false/);
+  assert.match(captureJs, /requestVideoFrameCallback/);
+  assert.match(captureJs, /capture_time_ms:/);
+  assert.match(captureJs, /receive_time_ms:/);
+  assert.match(captureJs, /rtp_timestamp:/);
+  assert.match(captureJs, /new MediaStream\(\[track\]\)/);
+  assert.match(captureJs, /momo-fpv-cpu-shadow-capture\/v1/);
+  assert.match(captureJs, /recorded_track_ended/);
+  assert.match(captureJs, /video_track_replaced/);
+  assert.match(captureJs, /downloadLastArtifacts/);
+  assert.doesNotMatch(captureJs, /sendCommand/);
+  assert.doesNotMatch(captureJs, /dataChannel/);
+
+  for (const event of ['telemetry', 'command', 'drive']) {
+    assert.match(viewerJs, new RegExp(`dispatchShadowCaptureEvent\\('${event}'`));
+  }
+  assert.match(viewerJs, /line: `\$\{command\}\\n`/);
+  assert.match(viewerJs, /webRtcStats: lastWebRtcStatsSnapshot/);
+  assert.match(viewerJs, /getCaptureSnapshot/);
+  assert.match(viewerJs, /transport_generation: transportGeneration/);
+  assert.match(viewerJs, /source_identity: \{\s*signaling_mode: SIGNALING_MODE/);
+  assert.match(viewerJs, /room_id: AYAME_ROOM_ID \|\| null/);
+  assert.match(viewerJs, /captureReason: 'transport_reconnect'/);
+  assert.match(viewerJs, /local_send_accepted: true/);
+  assert.match(viewerJs, /remote_applied: null/);
+  assert.match(viewerJs, /Video Flip is locked during CPU capture/);
+  assert.match(viewerJs, /Video Mirror is locked during CPU capture/);
+
+  const relayHtml = readProjectFile('variants/relay/pilot.html');
+  const relayJs = readProjectFile('variants/relay/pilot.js');
+  assert.match(
+    relayHtml,
+    /cpu-shadow-capture\.js\?v=20260731-cpu-shadow-capture/,
+  );
+  assert.match(relayHtml, /\.\.\/\.\.\/cpu-shadow-capture\.js/);
+  for (const event of ['telemetry', 'command', 'drive']) {
+    assert.match(relayJs, new RegExp(`dispatchShadowCaptureEvent\\('${event}'`));
+  }
+  assert.match(relayJs, /webRtcStats: lastWebRtcStatsSnapshot/);
+  assert.match(relayJs, /getCaptureSnapshot/);
+  assert.match(relayJs, /transport_generation: transportGeneration/);
+  assert.match(relayJs, /relay_device: getRelayDevice\(\) \|\| null/);
+  assert.match(relayJs, /race_car_id: RACE_CAR_ID \|\| null/);
+  assert.match(relayJs, /captureReason: 'transport_reconnect'/);
+  assert.match(relayJs, /event: 'drive_state_send'/);
+  assert.match(relayJs, /Video Flip is locked during CPU capture/);
+  assert.match(relayJs, /Video Mirror is locked during CPU capture/);
 });
 
 test('Relay Pilot keeps both Drive controls synchronized with the command channel', () => {
@@ -59,7 +118,9 @@ test('Relay Pilot allows a local-only Drive UI test without arming output', () =
   assert.match(setDriveEnabled, /const canSend = isDataChannelOpen\(\);/);
   assert.match(setDriveEnabled, /ffbOutputEnabled = FFB_ENABLED && canSend;/);
   assert.match(setDriveEnabled, /if \(canSend\) \{\s*startRcTx\(\);\s*\} else \{\s*stopRcTx\(\);\s*\}/);
-  assert.match(relayJs, /if \(!isDataChannelOpen\(\) \|\| !usesRelayTransport\(\) \|\| !driveChannel/);
+  assert.match(relayJs, /if \(!isDataChannelOpen\(\)\) \{/);
+  assert.match(relayJs, /if \(!usesRelayTransport\(\)\) \{/);
+  assert.match(relayJs, /if \(!driveChannel \|\| driveChannel\.readyState !== 'open'\) \{/);
   assert.match(relayJs, /if \(DRIVE_UI_TEST_MODE\) \{\s*btnReconnect\.textContent = 'TEST MODE';[\s\S]*?btnReconnect\.disabled = true;/);
   assert.match(relayJs, /async function connect\(options = \{\}\) \{\s*if \(DRIVE_UI_TEST_MODE\) \{\s*shouldReconnect = false;[\s\S]*?return;/);
   assert.match(relayJs, /if \(CONTROL_UI_MODE === 'test'\) \{\s*return rcDriveEnabled;\s*\}/);

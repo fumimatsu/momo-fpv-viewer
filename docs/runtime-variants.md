@@ -6,8 +6,8 @@ Viewer のソースリポジトリは `fumimatsu/momo-fpv-viewer` とする。
 
 | Variant | 正本 | 接続経路 | 配布先 |
 | --- | --- | --- | --- |
-| Direct | `viewer.html` / `viewer.js` | Pi 直結 P2P、Ayame | ローカル HTTP、GitHub Pages |
-| Relay Pilot | `variants/relay/pilot.html` / `variants/relay/pilot.js` / `variants/relay/garage.html` / `variants/relay/ffb-bridge.js` | Local Relay | `momo/tools/momo-relay/web/` |
+| Direct | `viewer.html` / `viewer.js` + root共通asset | Pi 直結 P2P、Ayame | ローカル HTTP、GitHub Pages |
+| Relay Pilot | `variants/relay/pilot.html` / `variants/relay/pilot.js` / `variants/relay/garage.html` / `variants/relay/ffb-bridge.js` + root共通asset | Local Relay | `momo/tools/momo-relay/web/` |
 
 `momo-fpv` の `client/` と `device-html/` は Pi 直結配布の運用コピーである。Relay Pilot の正本ではない。
 
@@ -16,6 +16,10 @@ Viewer のソースリポジトリは `fumimatsu/momo-fpv-viewer` とする。
 Direct Viewer は Pi の `serial` DataChannel と Ayame signaling を扱う。Relay Pilot は Relay との signaling に加え、`momo-command`、`momo-telemetry`、`momo-race` を扱う。HTML / JavaScript を単純に共有すると、片方の接続方式を壊す。
 
 共通の UI や Gamepad profile、Race HUD の変更は両 Variant へ意図して反映する。片方だけを編集して「最新」と扱うことを禁止する。
+
+`cpu-shadow-capture.js` は両Variantが読み込む共通assetである。各Pilotは
+telemetry、manual command、Drive transitionを同じcustom event契約で通知する。
+captureは観測専用であり、RC送信authorityを持たない。
 
 ただし、開催レースが Local Relay 経由に限定される現在は、前後車両の
 `intervalToAheadMs` を使う Battle Meter は Relay Pilot 専用とする。正本は

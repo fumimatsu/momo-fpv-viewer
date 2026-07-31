@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>CPU Shadow Capture Browser Fixture</title>
+</head>
+<body>
+  <div class="top-controls"></div>
+  <video id="remote_video" autoplay muted playsinline width="640" height="360"></video>
+  <canvas id="source" width="640" height="360" hidden></canvas>
+  <script>
+    const canvas = document.getElementById('source');
+    const context = canvas.getContext('2d');
+    let frame = 0;
+    window.setInterval(() => {
+      context.fillStyle = '#202020';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.fillStyle = '#00bfff';
+      context.fillRect(80 + frame % 40, 120, 20, 180);
+      context.fillStyle = '#ff1744';
+      context.fillRect(540 - frame % 40, 120, 20, 180);
+      frame += 1;
+    }, 50);
+    const stream = canvas.captureStream(20);
+    const video = document.getElementById('remote_video');
+    video.srcObject = stream;
+    video.play();
+    window.fpvViewer = {
+      getCaptureSnapshot: () => ({
+        build_id: 'browser-fixture',
+        variant: 'test',
+        drive_enabled: false,
+        last_command: 'S:1500,T:1500',
+        data_channel_state: 'closed',
+      }),
+      getDiagnostics: () => ({
+        reconnectCount: 0,
+        eventCounters: {},
+        webRtcStats: null,
+      }),
+    };
+    let seq = 0;
+    window.setInterval(() => {
+      seq += 1;
+      window.dispatchEvent(new CustomEvent('fpv-shadow-telemetry', {
+        detail: {
+          arrival_ms: performance.now(),
+          source: 'datachannel',
+          status: 'accepted',
+          accepted: true,
+          payload: {
+            v: 2,
+            k: 's',
+            src: 'imu0',
+            boot: '7f3a21c4',
+            seq,
+            t_us: seq * 50000,
+            m: { a: [0, 0, 0], y: 0 },
+            q: { p: 50000, f: ['flu_axes'] },
+          },
+        },
+      }));
+    }, 50);
+  </script>
+  <script src="../../cpu-shadow-capture.js"></script>
+</body>
+</html>
