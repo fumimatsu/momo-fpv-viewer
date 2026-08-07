@@ -12,7 +12,7 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
 {
     private const int Protocol = 1;
     private const string BridgeName = "Momo FPV FFB Bridge";
-    private const string BridgeVersion = "0.3.1-low-latency-pulse";
+    private const string BridgeVersion = "0.3.2-t300-telemetry-pulse";
     private static readonly TimeSpan FfbTimeout = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan StatusMinInterval = TimeSpan.FromMilliseconds(90);
     private static readonly TimeSpan BaselineApplyInterval = TimeSpan.FromMilliseconds(20);
@@ -570,8 +570,11 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
             var amplitude = ClampUnit(strength);
             _segments = kind.ToLowerInvariant() switch
             {
-                // 縁石は細かく小さい左右振動。進行方向に依存しない場合も最初の向きだけ固定する。
-                "curb" => Build(sign, amplitude, (1.00, 32), (-0.78, 32), (0.62, 32), (-0.45, 32)),
+                // グラベルと旧Viewerの縁石は、ベース抵抗に埋もれない長さの細かな左右振動にする。
+                "curb" or "gravel" => Build(sign, amplitude,
+                    (1.00, 30), (-0.86, 30), (0.74, 30), (-0.62, 30), (0.50, 30), (-0.38, 30)),
+                // HIT は片側へ押すだけで終わらせず、接触を分かる短い往復として再生する。
+                "hit" => Build(sign, amplitude, (1.00, 60), (-0.82, 68), (0.57, 60), (-0.35, 45)),
                 // 側面衝突は衝突方向へ強く振り、すぐ逆側へ少し弱く返す。
                 "sideimpact" => Build(sign, amplitude, (1.00, 72), (-0.72, 96)),
                 // 正面衝突は左右へ大きく振り、最後に小さく戻す。

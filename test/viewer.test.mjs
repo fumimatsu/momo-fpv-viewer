@@ -446,7 +446,7 @@ test('Relay Pilot sends event-level impact pulses to the FFB Bridge', () => {
   const relayJs = readProjectFile('variants/relay/pilot.js');
   const bridgeJs = readProjectFile('variants/relay/ffb-bridge.js');
   assert.match(relayJs, /function getImpactPulseRequest\(/);
-  assert.match(relayJs, /kind: profile\.pulseKind === 'curb'/);
+  assert.match(relayJs, /kind: profile\.pulseKind === 'impact'/);
   assert.match(relayJs, /ffbClient\.triggerImpactPulse\(pulse\)/);
   assert.match(bridgeJs, /type: 'impactPulse'/);
 });

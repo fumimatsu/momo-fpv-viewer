@@ -1,3 +1,4 @@
 # GitHub Pages で配信する Momo FPV Relay Pilot を許可する。
 # WebSocket の Origin 判定はパスを含められないため、fumimatsu.github.io 配下全体が対象になる。
 https://fumimatsu.github.io
+http://192.168.11.100:8090

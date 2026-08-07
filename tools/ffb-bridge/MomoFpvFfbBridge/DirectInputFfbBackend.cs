@@ -28,6 +28,7 @@ internal sealed record DeviceCompatibilityProfile(
     string Id,
     string Label,
     DirectInputForceSignMode SignMode,
+    int TorquePolarity,
     bool IsKnown);
 
 internal sealed record BackendStatus(
@@ -63,7 +64,10 @@ internal enum DirectInputForceSignMode
 
     // MOZA R3で安定した方式: directionは固定し、ConstantForce.Magnitude側に符号を持たせます。
     // MOZA SDKではなく、あくまでDirectInputの投げ方の違いです。
-    SignedConstantMagnitude
+    SignedConstantMagnitude,
+
+    // T300は単軸のCartesian directionを0にし、ConstantForce.Magnitude側の符号で左右を表します。
+    SignedSingleAxisMagnitude
 }
 
 internal static class FfbDeviceCompatibility
@@ -72,14 +76,16 @@ internal static class FfbDeviceCompatibility
         "generic-directinput",
         "Generic DirectInput",
         DirectInputForceSignMode.DirectionVector,
+        1,
         false);
 
-    private static readonly (string Id, string Label, string VendorId, string[] NameTokens, DirectInputForceSignMode SignMode)[] KnownProfiles =
+    private static readonly (string Id, string Label, string VendorId, string[] NameTokens, DirectInputForceSignMode SignMode, int TorquePolarity)[] KnownProfiles =
     {
-        ("moza-r3", "MOZA R3", "346E", new[] { "moza r3" }, DirectInputForceSignMode.SignedConstantMagnitude),
-        ("thrustmaster-t300", "Thrustmaster T300", "044F", new[] { "t300", "t-300" }, DirectInputForceSignMode.DirectionVector),
-        ("logitech-g29", "Logitech G29", "046D", new[] { "g29" }, DirectInputForceSignMode.DirectionVector),
-        ("logitech-g923", "Logitech G923", "046D", new[] { "g923" }, DirectInputForceSignMode.DirectionVector),
+        ("moza-r3", "MOZA R3", "346E", new[] { "moza r3" }, DirectInputForceSignMode.SignedConstantMagnitude, 1),
+        // T300の実機確認では、DirectInputの正負がViewerの操舵方向と逆だったため、ここでだけ反転する。
+        ("thrustmaster-t300", "Thrustmaster T300", "044F", new[] { "t300", "t-300" }, DirectInputForceSignMode.SignedSingleAxisMagnitude, -1),
+        ("logitech-g29", "Logitech G29", "046D", new[] { "g29" }, DirectInputForceSignMode.DirectionVector, 1),
+        ("logitech-g923", "Logitech G923", "046D", new[] { "g923" }, DirectInputForceSignMode.DirectionVector, 1),
     };
 
     public static DeviceCompatibilityProfile Resolve(string? name, string? vendorId, string? productId)
@@ -96,7 +102,7 @@ internal static class FfbDeviceCompatibility
             var nameMatches = candidate.NameTokens.Any(token => normalizedName.Contains(token, StringComparison.Ordinal));
             if (!vendorMatches || !nameMatches) continue;
 
-            return new DeviceCompatibilityProfile(candidate.Id, candidate.Label, candidate.SignMode, true);
+            return new DeviceCompatibilityProfile(candidate.Id, candidate.Label, candidate.SignMode, candidate.TorquePolarity, true);
         }
 
         return Generic;
@@ -399,6 +405,9 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
         return _backendMode switch
         {
             "moza-directinput" => DirectInputForceSignMode.SignedConstantMagnitude,
+            // directinput は汎用方式を指すが、既知の実機プロファイルまで上書きしない。
+            // これによりT300は単軸のsigned magnitude、R3はMOZA用の符号方式を選べる。
+            "directinput" when profile.IsKnown => profile.SignMode,
             "directinput" => DirectInputForceSignMode.DirectionVector,
             _ => profile.SignMode,
         };
@@ -446,7 +455,9 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
     {
         if (_device is null) return;
         var mode = NormalizeEffectMode(requestedMode);
-        var magnitude = (int)Math.Round(Math.Clamp(torque, -1.0, 1.0) * DirectInputMaxMagnitude);
+        // 対応プロファイルで実機の正負が逆の場合だけ、Viewerから受けたトルクをここで反転する。
+        var profileTorque = torque * _profile.TorquePolarity;
+        var magnitude = (int)Math.Round(Math.Clamp(profileTorque, -1.0, 1.0) * DirectInputMaxMagnitude);
         if (_constantForce is null || !string.Equals(_effectMode, mode, StringComparison.Ordinal))
         {
             // effect種別を切り替える時は作り直します。通常走行ではほぼconstantのままです。
@@ -468,9 +479,14 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
         var direction = signedMagnitude < 0 ? -DirectInputMaxMagnitude : DirectInputMaxMagnitude;
         var magnitude = Math.Abs(Math.Clamp(signedMagnitude, -DirectInputMaxMagnitude, DirectInputMaxMagnitude));
         var signed = Math.Clamp(signedMagnitude, -DirectInputMaxMagnitude, DirectInputMaxMagnitude);
-        var constantMagnitude = _signMode == DirectInputForceSignMode.SignedConstantMagnitude ? signed : magnitude;
-        var constantDirection = _signMode == DirectInputForceSignMode.SignedConstantMagnitude ? DirectInputMaxMagnitude : direction;
-        // 通常DirectInputはdirectionで左右を表す一方、MOZA R3向けモードではmagnitudeに符号を入れます。
+        var usesSignedMagnitude = _signMode is DirectInputForceSignMode.SignedConstantMagnitude or DirectInputForceSignMode.SignedSingleAxisMagnitude;
+        var singleAxisDirection = _signMode == DirectInputForceSignMode.SignedSingleAxisMagnitude;
+        var constantMagnitude = usesSignedMagnitude ? signed : magnitude;
+        var constantDirection = singleAxisDirection
+            ? 0
+            : _signMode == DirectInputForceSignMode.SignedConstantMagnitude ? DirectInputMaxMagnitude : direction;
+        var effectDirection = singleAxisDirection ? 0 : direction;
+        // R3は固定directionと符号付きmagnitude、T300は単軸direction=0と符号付きmagnitudeを使います。
         var parameters = new EffectParameters
         {
             Flags = EffectFlags.ObjectOffsets | EffectFlags.Cartesian,
@@ -488,7 +504,7 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
                 _ => new ConstantForce { Magnitude = constantMagnitude }
             }
         };
-        parameters.SetAxes(new[] { _ffbAxisOffset }, new[] { mode == "constant" ? constantDirection : direction });
+        parameters.SetAxes(new[] { _ffbAxisOffset }, new[] { mode == "constant" ? constantDirection : effectDirection });
         return parameters;
     }
 
@@ -561,6 +577,7 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
         }
         catch
         {
+            BridgeLog.Warn($"DirectInput condition effect is unavailable. effect={effectGuid}, profile={_profile.Id}");
             unavailable = true;
             try { effect?.Stop(); } catch { }
             try { effect?.Dispose(); } catch { }
@@ -597,7 +614,8 @@ internal sealed class DirectInputFfbBackend : IFfbBackend
                 }
             }
         };
-        parameters.SetAxes(new[] { _ffbAxisOffset }, new[] { 1 });
+        // T300の単軸Condition effectはCartesian direction=0が必要です。
+        parameters.SetAxes(new[] { _ffbAxisOffset }, new[] { _signMode == DirectInputForceSignMode.SignedSingleAxisMagnitude ? 0 : 1 });
         return parameters;
     }
 
