@@ -81,7 +81,10 @@ internal static class FfbDeviceCompatibility
 
     private static readonly (string Id, string Label, string VendorId, string[] NameTokens, DirectInputForceSignMode SignMode, int TorquePolarity)[] KnownProfiles =
     {
-        ("moza-r3", "MOZA R3", "346E", new[] { "moza r3" }, DirectInputForceSignMode.SignedConstantMagnitude, 1),
+        // MOZA Pit House reports the R3 as "R3 Racing Wheel and Pedals" on this PC.
+        // Keep the VID guard so other MOZA products are not given the R3 force-sign profile.
+        // The R3's observed DirectInput torque direction is opposite to the Viewer convention.
+        ("moza-r3", "MOZA R3", "346E", new[] { "moza r3", "r3 racing wheel and pedals" }, DirectInputForceSignMode.SignedConstantMagnitude, -1),
         // T300の実機確認では、DirectInputの正負がViewerの操舵方向と逆だったため、ここでだけ反転する。
         ("thrustmaster-t300", "Thrustmaster T300", "044F", new[] { "t300", "t-300" }, DirectInputForceSignMode.SignedSingleAxisMagnitude, -1),
         ("logitech-g29", "Logitech G29", "046D", new[] { "g29" }, DirectInputForceSignMode.DirectionVector, 1),

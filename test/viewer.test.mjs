@@ -597,7 +597,7 @@ test('FFB presets are configured from the input setup and selectable in the View
   assert.doesNotMatch(bridgeServer, /SmoothStep/);
   assert.match(backend, /Math\.Abs\(_lastTorque\) < 0\.0001 && _lastDamper <= 0\.0001 && _lastFriction <= 0\.0001/);
   assert.match(backend, /StopAllLocked\(\);/);
-  assert.match(backend, /\("moza-r3", "MOZA R3", "346E"/);
+  assert.match(backend, /\("moza-r3", "MOZA R3", "346E", new\[\] \{ "moza r3", "r3 racing wheel and pedals" \}, DirectInputForceSignMode\.SignedConstantMagnitude, -1\)/);
   assert.match(backend, /\("thrustmaster-t300", "Thrustmaster T300", "044F"/);
   assert.match(backend, /\("logitech-g29", "Logitech G29", "046D"/);
   assert.match(backend, /\("logitech-g923", "Logitech G923", "046D"/);
