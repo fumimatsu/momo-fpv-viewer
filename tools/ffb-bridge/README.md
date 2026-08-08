@@ -8,14 +8,15 @@ Viewer HTML -> ws://127.0.0.1:24725 -> DirectInput -> MOZA Pit House / R3
 
 ## デバイス互換性
 
-起動スクリプトの既定 backend は `moza-directinput` である。これは MOZA R3 の符号付き
-constant magnitude 出力を明示し、デバイス名や VID/PID の自動判別失敗で一般 DirectInput 方式へ
-落ちることを防ぐ。`auto` は他デバイスの検証時だけ明示指定する。
+起動スクリプトの既定 backend は `auto` である。接続したDirectInputデバイスのVIDと製品名から
+既知プロファイルを選び、R3とT300で実機確認済みの符号方式を適用する。未知機種は
+`generic-directinput`として検出するが、低出力の左右テストと方向確認が完了するまでViewerからの
+通常FFB出力を遮断する。
 
 | Device | Profile | DirectInput force sign |
 | --- | --- | --- |
 | MOZA R3 | `moza-r3` | Signed constant magnitude |
-| Thrustmaster T300 | `thrustmaster-t300` | Direction vector |
+| Thrustmaster T300 | `thrustmaster-t300` | Signed single-axis magnitude, reversed polarity |
 | Logitech G29 | `logitech-g29` | Direction vector |
 | Logitech G923 (PC mode) | `logitech-g923` | Direction vector |
 | その他のデバイス | `generic-directinput` | Direction vector |
@@ -25,6 +26,13 @@ constant magnitude 出力を明示し、デバイス名や VID/PID の自動判�
   Constant Force に対応していれば将来の方向性 effect を追加できる。
 - 組み込みプロファイルの一致には、想定する Vendor ID に加えて製品名の一致を要求する。
   実機の VID/PID は `listDevices` から記録し、確認後に Product ID 固定プロファイルへ昇格する。
+- 未知機種はGUIの `Hold left` と `Hold right` を低出力で実行し、両方の方向を確認してから
+  `Directions correct` または `Directions reversed` を選ぶ。未知機種の方向テストは強度設定に
+  かかわらず最大`0.20`に制限され、確認前はResistance/Impactテストも実行しない。この確認は
+  Bridgeプロセス終了まで有効。
+- `Save / Copy compatibility report` はVID/PID、製品名、DirectInputの軸・ボタン数、Effect能力、
+  判定profile、Acquire状態、方向確認結果に加え、接続中Viewerが報告したGamepad IDと軸・ボタン数を
+  含む共有用JSONを保存し、同じ内容をクリップボードへコピーする。
 - ドライバ診断時は、`-Backend directinput` と `-Backend moza-directinput` で
   符号方式を明示指定できる。
 
@@ -107,8 +115,9 @@ Relay Variant では、Relay Viewer と gamepad 設定画面をこの Viewer 正
 
 ## Bridge オプション
 
-- `--backend moza-directinput`: MOZA R3 向けの符号付き constant magnitude 出力。既定。
-- `--backend directinput`: G923 / G29 / T300 など、方向 vector 方式の DirectInput 出力。R3 以外で動作確認する時に指定する。
+- `--backend auto`: 既知デバイスprofileから符号方式を選ぶ。既定。
+- `--backend moza-directinput`: 判別結果を上書きしてMOZA式の符号付きconstant magnitudeを使う診断用指定。
+- `--backend directinput`: 一般DirectInputを明示する診断用指定。既知profileの符号方式は維持する。
 - `--max-output 0.02..1.0`: Bridge 側の絶対上限。既定は `1.00`。強すぎる環境だけ、起動時に明示して下げる。
 
 Pit House の機械的センタリング、ダンパー、フリクションは Phase 1 ではオフにする。Bridge は Windows AutoCenter を無効化し、基礎抵抗を唯一のソフトウェア制御層にする。横G、スリップ、IMU路面感、衝撃は Bridge の次段階の effect layer に追加する。

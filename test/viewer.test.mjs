@@ -351,6 +351,7 @@ test('Relay Pilot cache buster matches its build ID', () => {
   assert.ok(buildId);
   assert.match(relayHtml, new RegExp(`pilot\\.js\\?v=${buildId}`));
   assert.match(relayHtml, new RegExp(`telemetry\\.js\\?v=${buildId}`));
+  assert.match(relayHtml, new RegExp(`gamepad-profile\\.js\\?v=${buildId}`));
 });
 
 test('Relay Pilot keeps the FFB bridge shared with the Direct Viewer', () => {
@@ -364,6 +365,31 @@ test('Relay garage is a source-owned page and opens Pilot relatively', () => {
   const garage = readProjectFile('variants/relay/garage.html');
   assert.match(garage, /fetch\('\/api\/v1\/pilot-devices'/);
   assert.match(garage, /new URL\('pilot\.html', window\.location\.href\)/);
+});
+
+test('Relay Pilot menu exposes normal settings and guided wheel calibration', () => {
+  const relayHtml = readProjectFile('variants/relay/pilot.html');
+  const relayJs = readProjectFile('variants/relay/pilot.js');
+  assert.match(relayHtml, /id="btnMenu"/);
+  assert.match(relayHtml, /id="menuOverlay" class="menu-overlay" hidden/);
+  assert.match(relayHtml, /id="btnCarSelect"/);
+  assert.match(relayHtml, /id="btnStartCalibration"/);
+  assert.match(relayHtml, /id="btnInputSetup" class="wide"/);
+  assert.match(relayHtml, /id="btnAudio"/);
+  assert.match(relayHtml, /id="btnM5Audio"/);
+  assert.match(relayHtml, /id="btnFlip"/);
+  assert.match(relayJs, /event\.code === 'KeyM'/);
+  assert.match(relayJs, /const GAMEPAD_MENU_BUTTON = getNumberParamWithProfile\('gamepadMenuButton', 'menuButton'/);
+  assert.match(relayJs, /window\.location\.assign\(new URL\('garage\.html'/);
+  assert.match(relayJs, /function startCalibrationWizard\(\)/);
+  assert.match(relayJs, /steeringLeft/);
+  assert.match(relayJs, /throttlePressed/);
+  assert.match(relayJs, /brakePressed/);
+  assert.match(relayJs, /ffbPresetButton/);
+  assert.match(relayJs, /window\.localStorage\?\.setItem\(GAMEPAD_PROFILE_STORAGE_KEY/);
+  assert.match(relayJs, /setDriveEnabled\(false\);[\s\S]*menuOverlay\.hidden/);
+  assert.match(relayJs, /GAMEPAD_THROTTLE_BUTTON/);
+  assert.match(relayJs, /GAMEPAD_BRAKE_BUTTON/);
 });
 
 test('Race banner auto-hides during normal green running', () => {
@@ -485,6 +511,8 @@ test('FFB presets are configured from the input setup and selectable in the View
   const backend = readProjectFile('tools/ffb-bridge/MomoFpvFfbBridge/DirectInputFfbBackend.cs');
   const bridgeConfig = readProjectFile('tools/ffb-bridge/MomoFpvFfbBridge/BridgeConfig.cs');
   const bridgeLauncher = readProjectFile('tools/ffb-bridge/start-ffb-bridge.ps1');
+  const bridgeForm = readProjectFile('tools/ffb-bridge/MomoFpvFfbBridge/BridgeMainForm.cs');
+  const compatibilityDiagnostics = readProjectFile('tools/ffb-bridge/MomoFpvFfbBridge/FfbCompatibilityDiagnostics.cs');
   assert.ok(html.indexOf('ffb-bridge.js') < html.indexOf('viewer.js'));
   assert.doesNotMatch(html, /id="ffbTestPanel"/);
   assert.doesNotMatch(relayHtml, /id="ffbTestPanel"/);
@@ -540,6 +568,8 @@ test('FFB presets are configured from the input setup and selectable in the View
   assert.match(js, /window\.addEventListener\('pagehide', \(\) => \{\s*stopFfbOutput\(\);/);
   assert.match(bridgeClient, /ws:\/\/127\.0\.0\.1:24725/);
   assert.match(bridgeClient, /type: 'stopAll'/);
+  assert.match(bridgeClient, /function collectCompatibilityInfo\(\)/);
+  assert.match(bridgeClient, /compatibility: collectCompatibilityInfo\(\)/);
   assert.equal(readProjectFile('variants/relay/ffb-bridge.js'), bridgeClient);
   assert.match(relayHtml, /script src="\.\/ffb-bridge\.js"/);
   assert.match(relayJs, /const FFB_ENABLED = getBooleanParamWithProfile\('ffbEnabled', 'ffbEnabled', getBooleanParam\('ffbTest', false\)\)/);
@@ -572,8 +602,23 @@ test('FFB presets are configured from the input setup and selectable in the View
   assert.match(backend, /\("logitech-g29", "Logitech G29", "046D"/);
   assert.match(backend, /\("logitech-g923", "Logitech G923", "046D"/);
   assert.match(backend, /device\.GetEffects\(\)/);
-  assert.match(bridgeConfig, /var backend = "moza-directinput"/);
-  assert.match(bridgeLauncher, /\[string\]\$Backend = 'moza-directinput'/);
+  assert.match(bridgeConfig, /var backend = "auto"/);
+  assert.match(bridgeLauncher, /\[string\]\$Backend = 'auto'/);
+  assert.match(backend, /SignedSingleAxisMagnitude/);
+  assert.match(bridgeServer, /ConfirmUnknownDevicePolarity/);
+  assert.match(bridgeServer, /FFB output blocked pending compatibility confirmation/);
+  assert.match(bridgeServer, /compatibility\.EffectiveTorquePolarity/);
+  assert.match(bridgeForm, /Directions correct/);
+  assert.match(bridgeForm, /Directions reversed/);
+  assert.match(bridgeForm, /Save \/ Copy compatibility report/);
+  assert.match(bridgeForm, /Math\.Min\(TestStrength\(\), 0\.20\)/);
+  assert.match(bridgeForm, /allowUnconfirmedUnknown/);
+  assert.match(compatibilityDiagnostics, /schemaVersion = 1/);
+  assert.match(compatibilityDiagnostics, /device\.VendorId/);
+  assert.match(compatibilityDiagnostics, /device\.ProductId/);
+  assert.match(compatibilityDiagnostics, /processArchitecture/);
+  assert.match(compatibilityDiagnostics, /browserInput = server\.GetLastBrowserCompatibilityInfo\(\)/);
+  assert.match(bridgeServer, /ReadBrowserCompatibilityInfo/);
 });
 
 test('automatic Ayame client ID follows the room lock policy', () => {

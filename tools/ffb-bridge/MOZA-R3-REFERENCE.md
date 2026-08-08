@@ -8,7 +8,7 @@ J-DRIFT と Momo は FFB の入力が異なる。J-DRIFT は車両物理のス�
 
 | 項目 | 参照値 | Momo への扱い |
 | --- | ---: | --- |
-| 出力経路 | Local Bridge → Windows DirectInput | 同じ。Bridge は `moza-directinput` を使う |
+| 出力経路 | Local Bridge → Windows DirectInput | 同じ。Bridge の `auto` が `moza-r3` profileを選ぶ |
 | effect mode | constant | 同じ |
 | master gain / max force | `1.00` / `1.00` | Bridge の `-MaxOutput 1.0` に相当 |
 | smoothing | `0.20` | Momo には未導入。実ハンドル角を受信するまで追加しない |

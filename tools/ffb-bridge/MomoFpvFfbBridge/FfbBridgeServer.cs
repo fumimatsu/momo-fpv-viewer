@@ -8,11 +8,31 @@ using System.Text.Json;
 
 namespace MomoFpvFfbBridge;
 
+internal sealed record CompatibilityGateStatus(
+    bool Required,
+    bool Approved,
+    string DeviceId,
+    string ProfileId,
+    int EffectiveTorquePolarity,
+    string Message);
+
+internal sealed record BrowserGamepadSummary(
+    string Id,
+    int Index,
+    string Mapping,
+    int Axes,
+    int Buttons);
+
+internal sealed record BrowserCompatibilityInfo(
+    string UserAgent,
+    string Platform,
+    IReadOnlyList<BrowserGamepadSummary> Gamepads);
+
 internal sealed class FfbBridgeServer : IAsyncDisposable
 {
     private const int Protocol = 1;
     private const string BridgeName = "Momo FPV FFB Bridge";
-    private const string BridgeVersion = "0.3.2-t300-telemetry-pulse";
+    internal const string BridgeVersion = "0.4.0-auto-compatibility";
     private static readonly TimeSpan FfbTimeout = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan StatusMinInterval = TimeSpan.FromMilliseconds(90);
     private static readonly TimeSpan BaselineApplyInterval = TimeSpan.FromMilliseconds(20);
@@ -22,12 +42,16 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
     private readonly TcpListener _listener;
     private readonly JsonSerializerOptions _json = new(JsonSerializerDefaults.Web);
     private readonly object _ffbGate = new();
+    private readonly object _compatibilityGate = new();
+    private readonly Dictionary<string, int> _compatibilityApprovals = new(StringComparer.OrdinalIgnoreCase);
     private readonly ImpactPulseMixer _impactPulse = new();
     private BaselineFfbCommand? _baselineFfb;
     private bool _baselineDirty;
     private DateTimeOffset _lastFfbApplyAt = DateTimeOffset.MinValue;
     private int _lastImpactPulseSegment = -1;
     private int _activeClientCount;
+    private string _lastCompatibilityBlockDeviceId = "";
+    private BrowserCompatibilityInfo? _lastBrowserCompatibility;
 
     public bool IsListening { get; private set; }
     public int ActiveClientCount => Volatile.Read(ref _activeClientCount);
@@ -193,6 +217,11 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
             switch (type)
             {
                 case "hello":
+                    _lastBrowserCompatibility = ReadBrowserCompatibilityInfo(root);
+                    if (_lastBrowserCompatibility is not null)
+                    {
+                        BridgeLog.Info($"Viewer compatibility summary received. platform={_lastBrowserCompatibility.Platform}, gamepads={_lastBrowserCompatibility.Gamepads.Count}");
+                    }
                     await SendAsync(webSocket, new
                     {
                         type = "helloAck",
@@ -205,14 +234,22 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
                     break;
 
                 case "listDevices":
-                    await SendAsync(webSocket, new { type = "deviceList", devices = _backend.ListDevices() }, token);
+                {
+                    var devices = _backend.ListDevices();
+                    FfbCompatibilityDiagnostics.LogDeviceScan(devices, "viewer");
+                    await SendAsync(webSocket, new { type = "deviceList", devices }, token);
                     break;
+                }
 
                 case "acquireDevice":
                 {
+                    var browserCompatibility = ReadBrowserCompatibilityInfo(root);
+                    if (browserCompatibility is not null) _lastBrowserCompatibility = browserCompatibility;
                     // ブラウザ側で選んだDirectInputデバイスをacquireします。
                     // preferExclusive=trueでも失敗した場合はbackend側でNonExclusiveへ落とします。
                     var result = _backend.Acquire(ReadString(root, "deviceId"), ReadBool(root, "preferExclusive", true));
+                    var status = _backend.Snapshot(result.Message);
+                    FfbCompatibilityDiagnostics.LogAcquire(result, status, "viewer");
                     await SendAsync(webSocket, new
                     {
                         type = "acquired",
@@ -221,6 +258,7 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
                         exclusive = result.Exclusive,
                         profile = result.Profile,
                         capabilities = result.Capabilities,
+                        compatibility = GetCompatibilityGateStatus(),
                         inputStreaming = ReadBool(root, "inputStreaming", false)
                     }, token);
                     if (!result.Ok)
@@ -383,9 +421,21 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
     private void ApplyCompositeFfbLocked(double pulseTorque)
     {
         if (_baselineFfb is not { } baseline) return;
+        var compatibility = GetCompatibilityGateStatus();
+        if (compatibility.Required && !compatibility.Approved)
+        {
+            if (!string.Equals(_lastCompatibilityBlockDeviceId, compatibility.DeviceId, StringComparison.OrdinalIgnoreCase))
+            {
+                _lastCompatibilityBlockDeviceId = compatibility.DeviceId;
+                BridgeLog.Warn($"FFB output blocked pending compatibility confirmation. deviceId={compatibility.DeviceId}, profile={compatibility.ProfileId}");
+                _backend.StopAll("compatibility confirmation required");
+            }
+            return;
+        }
+        _lastCompatibilityBlockDeviceId = "";
         // impactPulse は通常の旋回トルクを置換せず加算する。最終クランプは backend 側でも行う。
         _backend.SetFfb(
-            ClampSignedUnit((baseline.Torque * baseline.Gain) + pulseTorque),
+            ClampSignedUnit(((baseline.Torque * baseline.Gain) + pulseTorque) * compatibility.EffectiveTorquePolarity),
             1,
             baseline.Enabled,
             baseline.EffectMode,
@@ -418,10 +468,63 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
             acquired = status.Acquired,
             exclusive = status.Exclusive,
             backend = _backend.BackendName,
+            compatibility = GetCompatibilityGateStatus(),
             maxOutput = _config.MaxOutput,
             deviceLost = status.DeviceLost,
             message = status.Message
         }, token);
+    }
+
+    internal CompatibilityGateStatus GetCompatibilityGateStatus()
+    {
+        var status = _backend.Snapshot();
+        if (!status.Acquired || string.IsNullOrWhiteSpace(status.DeviceId))
+        {
+            return new CompatibilityGateStatus(false, false, "", status.Profile.Id, 1, "No acquired device.");
+        }
+        if (status.Profile.IsKnown)
+        {
+            return new CompatibilityGateStatus(false, true, status.DeviceId, status.Profile.Id, 1, "Known hardware profile.");
+        }
+        lock (_compatibilityGate)
+        {
+            var approved = _compatibilityApprovals.TryGetValue(status.DeviceId, out var polarity);
+            return new CompatibilityGateStatus(
+                true,
+                approved,
+                status.DeviceId,
+                status.Profile.Id,
+                approved ? polarity : 1,
+                approved ? "Direction confirmed for this Bridge process." : "Run both low-output direction tests and confirm the result in the Bridge GUI.");
+        }
+    }
+
+    internal BrowserCompatibilityInfo? GetLastBrowserCompatibilityInfo() => _lastBrowserCompatibility;
+
+    internal CompatibilityGateStatus ConfirmUnknownDevicePolarity(int polarity)
+    {
+        var status = _backend.Snapshot();
+        if (!status.Acquired || string.IsNullOrWhiteSpace(status.DeviceId))
+        {
+            throw new InvalidOperationException("No DirectInput device is acquired.");
+        }
+        if (status.Profile.IsKnown)
+        {
+            return GetCompatibilityGateStatus();
+        }
+        var normalizedPolarity = polarity < 0 ? -1 : 1;
+        lock (_compatibilityGate)
+        {
+            _compatibilityApprovals[status.DeviceId] = normalizedPolarity;
+        }
+        lock (_ffbGate)
+        {
+            _backend.StopAll("compatibility direction confirmed");
+            _lastCompatibilityBlockDeviceId = "";
+        }
+        var result = GetCompatibilityGateStatus();
+        BridgeLog.Info($"Unknown DirectInput direction confirmed. deviceId={status.DeviceId}, profile={status.Profile.Id}, torquePolarity={normalizedPolarity}");
+        return result;
     }
 
     private async Task SendAsync(WebSocket webSocket, object message, CancellationToken token)
@@ -527,6 +630,47 @@ internal sealed class FfbBridgeServer : IAsyncDisposable
     {
         if (!root.TryGetProperty(name, out var value)) return fallback;
         return value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var number) && double.IsFinite(number)
+            ? number
+            : fallback;
+    }
+
+    private static BrowserCompatibilityInfo? ReadBrowserCompatibilityInfo(JsonElement root)
+    {
+        if (!root.TryGetProperty("compatibility", out var compatibility) || compatibility.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+        var gamepads = new List<BrowserGamepadSummary>();
+        if (compatibility.TryGetProperty("gamepads", out var pads) && pads.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var pad in pads.EnumerateArray().Take(8))
+            {
+                if (pad.ValueKind != JsonValueKind.Object) continue;
+                gamepads.Add(new BrowserGamepadSummary(
+                    ReadLimitedString(pad, "id", 256),
+                    ReadInt(pad, "index", -1),
+                    ReadLimitedString(pad, "mapping", 32),
+                    Math.Clamp(ReadInt(pad, "axes", 0), 0, 128),
+                    Math.Clamp(ReadInt(pad, "buttons", 0), 0, 256)));
+            }
+        }
+        return new BrowserCompatibilityInfo(
+            ReadLimitedString(compatibility, "userAgent", 512),
+            ReadLimitedString(compatibility, "platform", 128),
+            gamepads);
+    }
+
+    private static string ReadLimitedString(JsonElement root, string name, int maxLength)
+    {
+        var value = ReadString(root, name);
+        return value.Length <= maxLength ? value : value[..maxLength];
+    }
+
+    private static int ReadInt(JsonElement root, string name, int fallback)
+    {
+        return root.TryGetProperty(name, out var value)
+               && value.ValueKind == JsonValueKind.Number
+               && value.TryGetInt32(out var number)
             ? number
             : fallback;
     }

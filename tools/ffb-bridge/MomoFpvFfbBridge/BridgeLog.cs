@@ -19,6 +19,19 @@ internal static class BridgeLog
         Write("ERROR", detail);
     }
 
+    public static string WriteArtifact(string fileName, string content)
+    {
+        var safeName = Path.GetFileName(fileName);
+        if (string.IsNullOrWhiteSpace(safeName)) throw new ArgumentException("Artifact file name is required.", nameof(fileName));
+        lock (Gate)
+        {
+            Directory.CreateDirectory(DirectoryPath);
+            var path = Path.Combine(DirectoryPath, safeName);
+            File.WriteAllText(path, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            return path;
+        }
+    }
+
     private static void Write(string level, string message)
     {
         try

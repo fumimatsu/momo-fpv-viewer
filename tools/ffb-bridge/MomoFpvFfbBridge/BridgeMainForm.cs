@@ -25,13 +25,16 @@ internal sealed class BridgeMainForm : Form
         Maximum = 1.00M,
         DecimalPlaces = 2,
         Increment = 0.05M,
-        Value = 0.45M,
+        Value = 0.15M,
         Width = 80,
     };
     private readonly Label _testStatus = new() { AutoSize = true, ForeColor = Color.FromArgb(90, 110, 125), Text = "Viewer 未接続時だけ手動テストできます。" };
     private CancellationTokenSource? _testCts;
     private Task? _bridgeTask;
     private string? _bridgeStartupError;
+    private string _directionTestDeviceId = "";
+    private bool _leftDirectionTestCompleted;
+    private bool _rightDirectionTestCompleted;
 
     public BridgeMainForm(BridgeConfig config, IFfbBackend backend, FfbBridgeServer bridgeServer)
     {
@@ -105,23 +108,26 @@ internal sealed class BridgeMainForm : Form
     {
         var group = CreateGroup("Detected DirectInput devices");
         group.Margin = new Padding(0, 14, 0, 14);
-        var table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2, Padding = new Padding(12) };
+        var table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Padding = new Padding(12) };
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        table.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         table.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         table.Controls.Add(_devices, 0, 0);
-        table.SetColumnSpan(_devices, 2);
         var scan = new Button { Text = "Scan devices", AutoSize = true, Margin = new Padding(0, 10, 8, 0) };
         scan.Click += (_, _) => RefreshDevices();
+        var report = new Button { Text = "Save / Copy compatibility report", AutoSize = true, Margin = new Padding(0, 10, 8, 0) };
+        report.Click += (_, _) => SaveCompatibilityReport();
         var stop = new Button { Text = "Stop FFB", AutoSize = true, Margin = new Padding(0, 10, 0, 0) };
         stop.Click += (_, _) =>
         {
             _backend.StopAll("desktop-ui stop");
             UpdateStatus();
         };
-        table.Controls.Add(scan, 0, 1);
-        table.Controls.Add(stop, 1, 1);
+        var controls = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight };
+        controls.Controls.Add(scan);
+        controls.Controls.Add(report);
+        controls.Controls.Add(stop);
+        table.Controls.Add(controls, 0, 1);
         group.Controls.Add(table);
         return group;
     }
@@ -172,7 +178,7 @@ internal sealed class BridgeMainForm : Form
     {
         var group = CreateGroup("DirectInput manual tester");
         group.Margin = new Padding(0, 0, 0, 14);
-        var table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3, Padding = new Padding(12), AutoSize = true };
+        var table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4, Padding = new Padding(12), AutoSize = true };
         table.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         table.Controls.Add(new Label { Text = "Strength", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 0);
@@ -180,15 +186,19 @@ internal sealed class BridgeMainForm : Form
 
         var controls = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight };
         var left = new Button { Text = "Hold left 0.5 s", AutoSize = true };
-        left.Click += async (_, _) => await StartManualTestAsync(token => RunOutputAsync(-TestStrength(), 0, 0, TimeSpan.FromMilliseconds(500), token));
+        left.Click += async (_, _) => await RunDirectionTestAsync(-1);
         var right = new Button { Text = "Hold right 0.5 s", AutoSize = true };
-        right.Click += async (_, _) => await StartManualTestAsync(token => RunOutputAsync(TestStrength(), 0, 0, TimeSpan.FromMilliseconds(500), token));
+        right.Click += async (_, _) => await RunDirectionTestAsync(1);
         var resistance = new Button { Text = "Resistance 3 s", AutoSize = true };
         resistance.Click += async (_, _) => await StartManualTestAsync(token => RunOutputAsync(0, TestStrength(), TestStrength(), TimeSpan.FromSeconds(3), token));
         var impact = new Button { Text = "Impact burst", AutoSize = true };
         impact.Click += async (_, _) => await StartManualTestAsync(RunImpactBurstAsync);
         var stop = new Button { Text = "Stop FFB", AutoSize = true };
         stop.Click += (_, _) => StopManualTest("desktop-ui manual stop");
+        var correct = new Button { Text = "Directions correct", AutoSize = true };
+        correct.Click += (_, _) => ConfirmUnknownDirection(1);
+        var reversed = new Button { Text = "Directions reversed", AutoSize = true };
+        reversed.Click += (_, _) => ConfirmUnknownDirection(-1);
         controls.Controls.Add(left);
         controls.Controls.Add(right);
         controls.Controls.Add(resistance);
@@ -198,32 +208,46 @@ internal sealed class BridgeMainForm : Form
         table.SetColumnSpan(controls, 2);
         table.Controls.Add(_testStatus, 0, 2);
         table.SetColumnSpan(_testStatus, 2);
+        var confirmation = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight };
+        confirmation.Controls.Add(correct);
+        confirmation.Controls.Add(reversed);
+        table.Controls.Add(confirmation, 0, 3);
+        table.SetColumnSpan(confirmation, 2);
         group.Controls.Add(table);
         return group;
     }
 
     private double TestStrength() => (double)_testStrength.Value;
 
-    private async Task StartManualTestAsync(Func<CancellationToken, Task> test)
+    private async Task<bool> StartManualTestAsync(Func<CancellationToken, Task> test, bool allowUnconfirmedUnknown = false)
     {
         if (_bridgeServer.ActiveClientCount > 0)
         {
             _testStatus.ForeColor = Color.Firebrick;
             _testStatus.Text = "Viewer 接続中は手動テストできません。Drive Off と Viewer 切断後に実行してください。";
-            return;
+            return false;
         }
 
-        if (!EnsureManualTestDevice()) return;
+        if (!EnsureManualTestDevice()) return false;
+        var compatibility = _bridgeServer.GetCompatibilityGateStatus();
+        if (compatibility.Required && !compatibility.Approved && !allowUnconfirmedUnknown)
+        {
+            _testStatus.ForeColor = Color.Firebrick;
+            _testStatus.Text = "Unknown wheel: run both low-output direction tests and confirm direction first.";
+            return false;
+        }
         StopManualTest("replace manual test");
         var testCts = new CancellationTokenSource();
         _testCts = testCts;
         var token = testCts.Token;
         _testStatus.ForeColor = Color.FromArgb(0, 110, 86);
         _testStatus.Text = "Manual test running. Stop FFB または 250 ms 無更新で出力を停止します。";
+        var completed = false;
         try
         {
             await test(token);
-            if (!token.IsCancellationRequested) _testStatus.Text = "Manual test finished. Output stopped.";
+            completed = !token.IsCancellationRequested;
+            if (completed) _testStatus.Text = "Manual test finished. Output stopped.";
         }
         catch (OperationCanceledException)
         {
@@ -245,12 +269,86 @@ internal sealed class BridgeMainForm : Form
             testCts.Dispose();
             UpdateStatus();
         }
+        return completed;
+    }
+
+    private async Task RunDirectionTestAsync(int direction)
+    {
+        var appliedStrength = 0.0;
+        var completed = await StartManualTestAsync(token =>
+        {
+            appliedStrength = DirectionTestStrength();
+            return RunOutputAsync(
+                direction < 0 ? -appliedStrength : appliedStrength,
+                0,
+                0,
+                TimeSpan.FromMilliseconds(500),
+                token);
+        },
+            allowUnconfirmedUnknown: true);
+        if (!completed) return;
+        var status = _backend.Snapshot();
+        TrackDirectionTestDevice(status.DeviceId);
+        if (direction < 0) _leftDirectionTestCompleted = true;
+        else _rightDirectionTestCompleted = true;
+        _testStatus.Text = $"Direction test recorded: {(direction < 0 ? "left" : "right")}. Run both directions before confirmation.";
+        BridgeLog.Info($"Manual direction test completed. deviceId={status.DeviceId}, requestedDirection={(direction < 0 ? "left" : "right")}, strength={appliedStrength:0.00}");
+    }
+
+    private double DirectionTestStrength()
+    {
+        var status = _backend.Snapshot();
+        return status.Profile.IsKnown ? TestStrength() : Math.Min(TestStrength(), 0.20);
+    }
+
+    private void ConfirmUnknownDirection(int polarity)
+    {
+        var status = _backend.Snapshot();
+        if (!status.Acquired || string.IsNullOrWhiteSpace(status.DeviceId))
+        {
+            _testStatus.ForeColor = Color.Firebrick;
+            _testStatus.Text = "Acquire a DirectInput wheel and run both direction tests first.";
+            return;
+        }
+        if (status.Profile.IsKnown)
+        {
+            _testStatus.ForeColor = Color.FromArgb(0, 110, 86);
+            _testStatus.Text = $"{status.Profile.Label} uses a validated built-in direction profile.";
+            return;
+        }
+        if (!string.Equals(_directionTestDeviceId, status.DeviceId, StringComparison.OrdinalIgnoreCase)
+            || !_leftDirectionTestCompleted
+            || !_rightDirectionTestCompleted)
+        {
+            _testStatus.ForeColor = Color.Firebrick;
+            _testStatus.Text = "Run both Hold left and Hold right on this device before confirming direction.";
+            return;
+        }
+        var result = _bridgeServer.ConfirmUnknownDevicePolarity(polarity);
+        _testStatus.ForeColor = Color.FromArgb(0, 110, 86);
+        _testStatus.Text = polarity < 0
+            ? "Unknown wheel approved with reversed torque polarity for this Bridge process."
+            : "Unknown wheel approved with normal torque polarity for this Bridge process.";
+        BridgeLog.Info($"Manual compatibility confirmation accepted. deviceId={result.DeviceId}, torquePolarity={result.EffectiveTorquePolarity}");
+        UpdateStatus();
+    }
+
+    private void TrackDirectionTestDevice(string deviceId)
+    {
+        if (string.Equals(_directionTestDeviceId, deviceId, StringComparison.OrdinalIgnoreCase)) return;
+        _directionTestDeviceId = deviceId;
+        _leftDirectionTestCompleted = false;
+        _rightDirectionTestCompleted = false;
     }
 
     private bool EnsureManualTestDevice()
     {
         var current = _backend.Snapshot();
-        if (current.Acquired && !current.DeviceLost) return true;
+        if (current.Acquired && !current.DeviceLost)
+        {
+            TrackDirectionTestDevice(current.DeviceId);
+            return true;
+        }
         var device = _backend.ListDevices().FirstOrDefault(candidate => candidate.IsFfbCapable && candidate.Capabilities.ConstantForce);
         if (device is null)
         {
@@ -259,7 +357,13 @@ internal sealed class BridgeMainForm : Form
             return false;
         }
         var result = _backend.Acquire(device.Id, preferExclusive: true);
-        if (result.Ok) return true;
+        var status = _backend.Snapshot(result.Message);
+        FfbCompatibilityDiagnostics.LogAcquire(result, status, "manual-test");
+        if (result.Ok)
+        {
+            TrackDirectionTestDevice(result.DeviceId);
+            return true;
+        }
         _testStatus.ForeColor = Color.Firebrick;
         _testStatus.Text = $"Device acquire failed: {result.Message}";
         BridgeLog.Warn($"Manual DirectInput acquire failed. deviceId={device.Id}, message={result.Message}");
@@ -320,11 +424,13 @@ internal sealed class BridgeMainForm : Form
         {
             _devices.BeginUpdate();
             _devices.Items.Clear();
-            foreach (var device in _backend.ListDevices())
+            var devices = _backend.ListDevices();
+            FfbCompatibilityDiagnostics.LogDeviceScan(devices, "desktop-ui");
+            foreach (var device in devices)
             {
                 var capability = device.IsFfbCapable ? "FFB" : "input only";
                 var wheel = device.IsLikelyWheel ? "wheel" : "controller";
-                _devices.Items.Add($"{device.Name}  |  {capability}, {wheel}, VID:{device.VendorId} PID:{device.ProductId}");
+                _devices.Items.Add($"{device.Name}  |  {capability}, {wheel}, VID:{device.VendorId} PID:{device.ProductId}, profile:{device.Profile.Id}");
             }
             if (_devices.Items.Count == 0) _devices.Items.Add("No DirectInput game controllers detected.");
         }
@@ -337,6 +443,35 @@ internal sealed class BridgeMainForm : Form
         finally
         {
             _devices.EndUpdate();
+        }
+    }
+
+    private void SaveCompatibilityReport()
+    {
+        try
+        {
+            var path = FfbCompatibilityDiagnostics.SaveReport(_config, _backend, _bridgeServer, out var json);
+            var copied = false;
+            try
+            {
+                Clipboard.SetText(json);
+                copied = true;
+            }
+            catch (Exception ex)
+            {
+                BridgeLog.Warn($"Compatibility report clipboard copy failed. message={ex.Message}");
+            }
+            _testStatus.ForeColor = Color.FromArgb(0, 110, 86);
+            _testStatus.Text = copied
+                ? $"Compatibility report saved and copied: {Path.GetFileName(path)}"
+                : $"Compatibility report saved: {Path.GetFileName(path)}";
+            BridgeLog.Info($"Compatibility report generated. file={Path.GetFileName(path)}, copied={copied}");
+        }
+        catch (Exception ex)
+        {
+            BridgeLog.Error("Compatibility report generation failed.", ex);
+            _testStatus.ForeColor = Color.Firebrick;
+            _testStatus.Text = $"Compatibility report failed: {ex.Message}";
         }
     }
 
@@ -356,10 +491,15 @@ internal sealed class BridgeMainForm : Form
             _bridgeServer.ActiveClientCount > 0 ? $"Connected ({_bridgeServer.ActiveClientCount})" : "Waiting for Viewer");
 
         var status = _backend.Snapshot();
+        var compatibility = _bridgeServer.GetCompatibilityGateStatus();
         var deviceText = status.Acquired
             ? $"Acquired: {status.DeviceName} ({(status.Exclusive ? "exclusive" : "shared")})"
+              + (compatibility.Required && !compatibility.Approved ? " - direction confirmation required" : "")
             : "Detected devices are waiting for Viewer acquire";
-        SetStatus(_deviceStatus, status.Acquired && !status.DeviceLost, deviceText);
+        SetStatus(
+            _deviceStatus,
+            status.Acquired && !status.DeviceLost && (!compatibility.Required || compatibility.Approved),
+            deviceText);
 
         var active = status.LastFriction > 0.001 || status.LastDamper > 0.001 || Math.Abs(status.LastTorque) > 0.001;
         var effectText = active
