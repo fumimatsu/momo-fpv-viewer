@@ -454,6 +454,9 @@ test('Relay Pilot forwards bounded directional telemetry torque to the FFB Bridg
   assert.match(relayJs, /const FFB_TELEMETRY_CORNER_TORQUE/);
   assert.match(relayJs, /const FFB_IMPACT_TORQUE/);
   assert.match(relayJs, /function getTelemetryFfbTorque\(/);
+  assert.match(relayJs, /function getFfbCornerDirectionSign\(deviceProfile\)/);
+  assert.match(relayJs, /Number\.isFinite\(torquePolarity\) && torquePolarity < 0/);
+  assert.match(relayJs, /return -FFB_CORNER_DIRECTION_SIGN;/);
   assert.match(relayJs, /telemetryTorque,/);
   assert.match(relayJs, /FFB_TELEMETRY_TORQUE_MAX/);
 });
